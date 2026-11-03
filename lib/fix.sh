@@ -43,22 +43,25 @@ NEED_HB=0
 for pkg in $(b_load_targets); do
     [ "$pkg" = "$GMS" ] && b_pkg_installed "$GMS" && NEED_HB=1
 done
-HB_RC=1
+HB_RC=1; HB_SENT=0
 if [ "$NEED_HB" = "1" ]; then
     b_log ""
     b_head "GCM 心跳(MCS_HEARTBEAT / HEARTBEAT_NOW / GcmSenderProxy)"
-    b_heartbeat && HB_RC=0
+    if b_heartbeat; then HB_RC=0; HB_SENT=1; fi
 else
     HB_RC=0
 fi
 
 b_log ""
 b_head "结果"
-b_log "解除 stopped: $FIXED 个 · 失败: $FAILED 个 · 心跳: $([ $HB_RC = 0 ] && printf '已发' || printf '部分未确认')"
+if [ "$HB_SENT" = "1" ]; then _hb=已发
+elif [ "$NEED_HB" = "1" ]; then _hb=部分未确认
+else _hb='未发(GMS 未检出或目标列表为空)'; fi
+b_log "解除 stopped: $FIXED 个 · 失败: $FAILED 个 · 心跳: $_hb"
 # persist fix summary for the read-only WebUI (see check.sh note)
 if mkdir -p "$STATE_DIR" 2>/dev/null && [ -w "$STATE_DIR" ]; then
     printf '{"ts":"%s","kind":"fix","fixed":%s,"failed":%s,"heartbeat":%s}\n' \
-        "$(date '+%F %T')" "$FIXED" "$FAILED" "$([ $HB_RC = 0 ] && echo 1 || echo 0)" \
+        "$(date '+%F %T')" "$FIXED" "$FAILED" "$HB_SENT" \
         > "$STATE_DIR/last-fix.json" 2>/dev/null
 fi
 if [ "$FAILED" = "0" ]; then

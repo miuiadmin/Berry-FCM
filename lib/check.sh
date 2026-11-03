@@ -5,6 +5,23 @@
 
 b_identity_guard || exit 1
 
+# ---- [diag] device-truth lines (always on, keep compact) ----
+# These exist because a 2026-11-03 field report showed the target loop
+# silently no-op'ing (empty b_load_targets) while probe=1 — raw states here
+# turn the next copied report into a definitive answer.
+_ftn=0
+if [ -s "$TARGETS_FILE" ]; then
+    _ftn="$(grep -vE '^[[:space:]]*(#|$)' "$TARGETS_FILE" 2>/dev/null | grep -c .)"
+    [ -z "$_ftn" ] && _ftn=0
+fi
+_fsz=none
+[ -f "$TARGETS_FILE" ] && _fsz="$(wc -c < "$TARGETS_FILE" 2>/dev/null | tr -d ' ')"
+b_log "[diag] moddir=$MODDIR"
+b_log "[diag] targets_file 有效行=$_ftn/字节数=$_fsz · 生效目标=$(b_load_targets 2>/dev/null | grep -c .) 个"
+b_log "[diag] cmd_path=$(cmd package path --user 0 "$GMS" 2>&1 | head -c 70 | tr '\n\r' '  ')"
+b_log "[diag] pm_path=$(pm path --user 0 "$GMS" 2>&1 | head -c 70 | tr '\n\r' '  ')"
+[ "$_ftn" = "0" ] && b_log "[diag] targets.txt 头部=$(head -c 60 "$TARGETS_FILE" 2>&1 | tr '\n\r\t' '   ')"
+
 # ---- collect ----
 GMS_OK=0; GMS_STOPPED=0; GCM_ALIVE=0; RECV=0; PROBE_OK=0
 b_probe_ok && PROBE_OK=1

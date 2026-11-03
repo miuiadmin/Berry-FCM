@@ -39,28 +39,44 @@ b_identity_guard() {
 b_default_targets() { printf '%s\n' "$GMS"; }
 b_load_targets() {
     if [ -s "$TARGETS_FILE" ]; then
-        grep -vE '^\s*(#|$)' "$TARGETS_FILE" 2>/dev/null
-    else
+        _list="$(grep -vE '^[[:space:]]*(#|$)' "$TARGETS_FILE" 2>/dev/null)"
+        if [ -n "$_list" ]; then
+            printf '%s\n' "$_list"
+            return 0
+        fi
+        # pathological: file exists with bytes but zero valid package lines
+        # (observed in the wild 2026-11-03: every probe reported nothing and
+        # the loop silently no-op'd). GMS protection must never silently die
+        # on a config glitch — fall back to defaults.
         b_default_targets
+        return 0
     fi
+    b_default_targets
 }
 
 # --- probes (read-only, all ported from the original's builders) ----------
-# installed: cmd package path (original: e.smali probe) with pm path fallback —
-# a transient cmd/binder hiccup must not read as "not installed"
-# (real-world: 2026-11-03 vivo/Android 17 — second run of check.sh 8s after a
-# healthy one had cmd+dumpsys return empty; GMS obviously hadn't vanished)
+# installed: cmd package path (original: e.smali probe) → pm path → dumpsys
+# package dump. A transient cmd/binder hiccup (or a dead `cmd` service with a
+# live dumpsys — observed in the wild 2026-11-03 on vivo/Android 17) must not
+# read as "not installed".
 b_pkg_installed() {
     _pkg="$1"
     [ -n "$(cmd package path --user 0 "$_pkg" 2>/dev/null)" ] && return 0
     [ -n "$(pm path --user 0 "$_pkg" 2>/dev/null)" ] && return 0
+    dumpsys -t 3 package "$_pkg" 2>/dev/null | grep -q 'Package \[' && return 0
     return 1
 }
 
-# probe channel health: is dumpsys actually answering? separates "probes
-# broken" (report will read all-zeros) from "app really gone/uninstalled"
+# probe channel health: is dumpsys actually answering with a real dump?
+# (error banners like "Unable to find service" print on stdout — non-empty
+# output alone once counted as "probe ok", a false positive)
 b_probe_ok() {
-    [ -n "$(dumpsys -t 3 package "$GMS" 2>/dev/null | head -n 5)" ]
+    _o="$(dumpsys -t 3 package "$GMS" 2>/dev/null | head -n 5)"
+    [ -n "$_o" ] || return 1
+    case "$_o" in
+        *[Uu]nable*|*[Dd]enial*|*[Ee]xception*|*[Ee]rror*|*"not found"*|*"No service"*|*"can't find"*) return 1 ;;
+    esac
+    return 0
 }
 
 # stopped: dumpsys -t 3 package <pkg> -> "User 0: ... stopped=true"  (ie0.smali)
