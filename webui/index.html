@@ -82,10 +82,19 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   <div class="logo">🫐</div>
   <div>
     <h1>Berry-FCM</h1>
-    <div class="sub">OriginOS FCM 推送守护 · v1.0.10</div>
+    <div class="sub">OriginOS FCM 推送守护 · v1.0.11</div>
   </div>
   <span class="chip" id="modeChip">…</span>
 </header>
+
+<div class="card" id="permCard" style="display:none">
+  <h2>模块权限</h2>
+  <div class="status-row"><span class="dot" id="pdMode"></span><span>访问模式</span><span class="kv" id="pvMode">—</span></div>
+  <div class="status-row"><span class="dot" id="pdBg"></span><span>允许后台操作</span><span class="kv" id="pvBg">—</span></div>
+  <div class="status-row"><span class="dot" id="pdTrust"></span><span>信任状态</span><span class="kv" id="pvTrust">—</span></div>
+  <button class="small primary" id="bSettings" style="margin-top:10px">⚙ 打开模块设置</button>
+  <div class="hint" id="permHint"></div>
+</div>
 
 <div class="card warn" id="safeCard" style="display:none">
   <h2 style="color:var(--warn)">⚠ 权限不足:当前为 Safe 模式</h2>
@@ -203,6 +212,8 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     if(S){
       var sk=jkeys(S);
       lines.push('[diag] window.Shizuku keys=['+sk.join(',')+']');
+      BR.canOpen=(typeof S.openSettings==='function');   // PR#178:页面可直达模块设置
+      lines.push('[diag] openSettings='+(BR.canOpen?'yes':'no'));
       if(typeof S.exec==='function'||typeof S.execWithOptions==='function'){
         BR.kind='sync';
         var info=null;
@@ -459,7 +470,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     return '=== Berry-FCM 诊断报告 ===\n'+
       '时间: '+new Date().toString()+'\n'+
       '页面: '+location.href+'\n'+
-      'WebUI: v1.0.10 · 模块: '+((BR.info&&BR.info.version)||'?')+'('+((BR.info&&BR.info.versionCode)||'?')+')\n'+
+      'WebUI: v1.0.11 · 模块: '+((BR.info&&BR.info.version)||'?')+'('+((BR.info&&BR.info.versionCode)||'?')+')\n'+
       '桥: '+BR.kind+(BR.dead?' · dead':'')+(BR.blocked?' · blocked':'')+(RO?' · readonly':'')+
       ' · chip='+$('modeChip').textContent+'\n'+
       'UA: '+navigator.userAgent+'\n'+
@@ -494,6 +505,39 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   var lines=detect();
   lines.forEach(log);
   $('modeChip').textContent=BR.chip||BR.kind;
+
+  /* ---- 模块权限卡:getModuleInfo 三态 + 直达设置按钮 ---- */
+  function renderPerm(){
+    var info=BR.info; if(!info)return;
+    $('permCard').style.display='block';
+    var mode=String(info.accessMode||info.mode||'').toLowerCase();
+    setRow('pdMode','pvMode',mode==='full', mode==='full'?'Full access ✓':'Safe · 受限');
+    if(typeof info.background==='boolean'){
+      setRow('pdBg','pvBg',info.background, info.background?'已开启 · 开机自愈生效':'未开启 · 开机自愈未生效', true);
+    }else{
+      $('pdBg').className='dot';
+      $('pvBg').textContent='未知(本管理器未上报)';
+    }
+    var tr=!!info.trusted;
+    $('pdTrust').className='dot '+(tr?'ok':'');
+    $('pvTrust').textContent=tr?'已信任 · 命令免逐条确认':'未信任 · 每次命令会弹「运行此命令?」';
+    var b=$('bSettings'),h=$('permHint'),tail=tr?'':'弹窗嫌烦的话:长按 Berry-FCM 卡片 → 点「信任」,之后所有命令不再逐条确认。';
+    if(BR.canOpen){
+      b.style.display='inline-block';
+      b.onclick=function(){
+        try{
+          var r=window.Shizuku.openSettings();
+          log('▶ 已请求打开模块设置'+((typeof r==='string'&&r)?' → '+r:''));
+          toast('✓ 正在打开模块设置(本页会关闭)','ok');
+        }catch(e){ toast('✕ 跳转失败: '+e,'err'); log('✕ openSettings 异常: '+e); }
+      };
+      h.textContent='「允许后台操作」和访问模式都在模块设置里,点上方按钮直达;改完回来刷新本页。'+(tail?' '+tail:'');
+    }else{
+      b.style.display='none';
+      h.innerHTML='本管理器版本不支持从页面跳转,手动路径:<b>返回模块列表 → 顶部 ⚙</b>;改完回来刷新本页。'+(tail?' '+tail:'');
+    }
+  }
+  renderPerm();
 
   if(BR.kind==='none'){
     RO=true;
