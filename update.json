@@ -1,6 +1,6 @@
 {
-  "version": "1.0.2",
-  "versionCode": 3,
-  "zipUrl": "https://github.com/miuiadmin/Berry-FCM/releases/download/v1.0.2/Berry-FCM-1.0.2.zip",
-  "changelog": "v1.0.2: universal WebUI bridge adapter — auto-detects and drives three manager bridge flavours: sync JSON exec/execWithOptions (rushiranpise Shizuku-Next, Shevery), async callback ShizukuNext.exec/execScript (yijiacloud Shizuku Next enhanced edition, incl. its temp-copy script pipeline), plus filesystem probe fallback for moduleDir. Startup now prints [diag] fingerprint lines (bridge keys, moduleDir) into the console so any residual incompatibility is visible at a glance. v1.0.1: absolute moduleDir paths. v1.0.0: initial release — GMS stopped-state detection & unstop (Android 13+), triple GCM heartbeat, per-boot one-shot auto recovery, target manager, vivo deep links, offline WebUI. Requires Full access + Allow background actions, shell uid 2000 only."
+  "version": "1.0.3",
+  "versionCode": 4,
+  "zipUrl": "https://github.com/miuiadmin/Berry-FCM/releases/download/v1.0.3/Berry-FCM-1.0.3.zip",
+  "changelog": "v1.0.3: dead-bridge degraded mode — some managers' release builds (notably rushiranpise/Shizuku-Next) strip every @JavascriptInterface method via R8 minification, so no module's WebUI can execute commands there. The WebUI now detects this precisely (injected object with zero methods), shows a clear banner instead of raw errors, disables bridge-dependent buttons, and switches to a read-only view rendering state/last-report.json via file:// XHR. check.sh/fix.sh/service.sh persist machine-readable reports every run, so the read-only page always reflects the latest Action-button or boot-recovery result. Module core is unaffected by the manager bug: use the module card's Action button (native path) for check/fix. v1.0.2: universal bridge adapter (sync exec / async ShizukuNext / [diag] fingerprint). v1.0.1: absolute moduleDir paths. v1.0.0: initial release — GMS stopped-state detection & unstop (Android 13+), triple GCM heartbeat, per-boot one-shot auto recovery, target manager, vivo deep links, offline WebUI. Requires Full access + Allow background actions, shell uid 2000 only."
 }

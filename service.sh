@@ -42,3 +42,7 @@ if [ "$FIXED" -gt "0" ]; then
     echo "[$(date '+%F %T')] heartbeat sent after recovery"
 fi
 echo "[$(date '+%F %T')] service done: fixed=$FIXED"
+
+# refresh persisted report so the read-only WebUI (dead-bridge managers)
+# reflects post-recovery state; read-only probes, quiet by design
+sh "$MODDIR/lib/check.sh" >/dev/null 2>&1 || true

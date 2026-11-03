@@ -54,6 +54,14 @@ b_log ""
 b_log "说明: stopped=true = 被「强制停止」,该状态下 FCM/广播一律收不到;"
 b_log "      GcmService=no 或 已注册接收器=0 = GCM 链路未建立,可发送心跳唤醒。"
 
-# ---- machine line ----
-printf 'JSON: {"gms_installed":%s,"gms_stopped":%s,"gcm_service":%s,"receivers":%s,"targets":[%s]}\n' \
-    "$GMS_OK" "$GMS_STOPPED" "$GCM_ALIVE" "$RECV" "$(printf '%s' "$TARGET_JSON" | sed 's/,$//')"
+# ---- machine line + persisted report (read-only WebUI fallback) ----
+# state/last-report.json is what the WebUI reads when the manager's JS bridge
+# is dead (rushiranpise/Shizuku-Next release builds strip @JavascriptInterface
+# via R8) — the page then renders this file over file:// XHR instead.
+J="$(printf '{"gms_installed":%s,"gms_stopped":%s,"gcm_service":%s,"receivers":%s,"targets":[%s]}' \
+    "$GMS_OK" "$GMS_STOPPED" "$GCM_ALIVE" "$RECV" "$(printf '%s' "$TARGET_JSON" | sed 's/,$//')")"
+if mkdir -p "$STATE_DIR" 2>/dev/null && [ -w "$STATE_DIR" ]; then
+    printf '{"ts":"%s","kind":"check","json":%s}\n' \
+        "$(date '+%F %T')" "$J" > "$STATE_DIR/last-report.json" 2>/dev/null
+fi
+printf 'JSON: %s\n' "$J"

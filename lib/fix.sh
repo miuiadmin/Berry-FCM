@@ -55,6 +55,12 @@ fi
 b_log ""
 b_head "结果"
 b_log "解除 stopped: $FIXED 个 · 失败: $FAILED 个 · 心跳: $([ $HB_RC = 0 ] && printf '已发' || printf '部分未确认')"
+# persist fix summary for the read-only WebUI (see check.sh note)
+if mkdir -p "$STATE_DIR" 2>/dev/null && [ -w "$STATE_DIR" ]; then
+    printf '{"ts":"%s","kind":"fix","fixed":%s,"failed":%s,"heartbeat":%s}\n' \
+        "$(date '+%F %T')" "$FIXED" "$FAILED" "$([ $HB_RC = 0 ] && echo 1 || echo 0)" \
+        > "$STATE_DIR/last-fix.json" 2>/dev/null
+fi
 if [ "$FAILED" = "0" ]; then
     exit 0
 fi

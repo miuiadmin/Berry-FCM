@@ -54,10 +54,19 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   <div class="logo">🫐</div>
   <div>
     <h1>Berry-FCM</h1>
-    <div class="sub">OriginOS FCM 推送守护 · v1.0.2</div>
+    <div class="sub">OriginOS FCM 推送守护 · v1.0.3</div>
   </div>
   <span class="chip" id="modeChip">…</span>
 </header>
+
+<div class="card" id="deadCard" style="display:none;border-color:#7f1d1d">
+  <h2 style="color:#f87171">WebUI 桥不可用(管理器缺陷 · 非本模块问题)</h2>
+  <div style="font-size:13px;line-height:1.75">
+    本管理器的 <b>release 版</b>在打包时把网页桥的方法全部剥离了(R8 混淆缺 keep 规则),<b>所有模块</b>的 WebUI 都执行不了命令 —— debug 版管理器正常。<br>
+    ✅ 模块功能<b>不受影响</b>:请回模块列表点 <b>「操作」(Action)按钮</b>执行检测/修复(原生路径);开机自愈照常。<br>
+    本页已转为<b>只读模式</b>:显示最近一次检测报告(点过「操作」或开机自愈后,回来点下方「刷新报告」)。
+  </div>
+</div>
 
 <div class="card">
   <h2>状态</h2>
@@ -65,6 +74,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   <div class="status-row"><span class="dot" id="dStop"></span><span>GMS stopped 标记</span><span class="kv" id="vStop">—</span></div>
   <div class="status-row"><span class="dot" id="dSvc"></span><span>GcmService 运行</span><span class="kv" id="vSvc">—</span></div>
   <div class="status-row"><span class="dot" id="dRecv"></span><span>GMS 已注册广播接收器</span><span class="kv" id="vRecv">—</span></div>
+  <button class="small" id="bRefresh" style="display:none;margin-top:10px">刷新报告(只读)</button>
 </div>
 
 <div class="card">
@@ -150,7 +160,8 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
           else if(/safe/i.test(String(BR.chip)))BR.blocked=true;
         }
       }else{
-        lines.push('[diag] window.Shizuku 存在但没有 exec(旧版/阉割桥?)');
+        BR.dead=true;   // Shizuku object injected but zero callable methods
+        lines.push('[diag] window.Shizuku 存在但没有 exec(方法数为 0 → 管理器 release 版 R8 剥离桥方法,典型缺陷)');
       }
     }else{ lines.push('[diag] window.Shizuku 不存在'); }
 
@@ -201,7 +212,13 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   }
 
   /* ---- 统一入口 ---- */
+  var RO=false;   // read-only mode (dead bridge): no command execution, XHR report only
+  function noBridge(){
+    log('✕ 桥不可用(管理器 release 版剥离了桥方法)。请用模块卡片的「操作」按钮执行;本页只读。');
+    return Promise.resolve({exitCode:-1,stdout:'',stderr:'bridge unavailable'});
+  }
   function runScript(rel,args,opt,live){
+    if(RO)return noBridge();
     if(BR.kind==='async'){
       var p=rel+(args?' '+args:'');
       return asyncRun(function(){window.ShizukuNext.execScript(p);},live);
@@ -209,7 +226,46 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     var cmd='sh "'+(BR.mod?BR.mod+'/':'')+rel+'"'+(args?' '+args:'');
     return syncRun(cmd,opt);
   }
-  function runRaw(cmd){ return BR.kind==='async'?asyncRun(function(){window.ShizukuNext.exec(cmd);}) : syncRun(cmd,null); }
+  function runRaw(cmd){
+    if(RO)return noBridge();
+    return BR.kind==='async'?asyncRun(function(){window.ShizukuNext.exec(cmd);}) : syncRun(cmd,null);
+  }
+
+  /* ---- 只读模式:file:// XHR 读 state/last-report.json + config/targets.txt ----
+     依赖 WebView allowFileAccessFromFileURLs(rushiranpise/Shevery 均开)。
+     check.sh / fix.sh / service.sh 每次运行都会刷新 last-report.json。 */
+  function xhrText(p){
+    return new Promise(function(res,rej){
+      try{
+        var x=new XMLHttpRequest();
+        x.open('GET',p,true);
+        x.onload=function(){ if(x.status===200||x.status===0)res(x.responseText); else rej(new Error('HTTP '+x.status)); };
+        x.onerror=function(){ rej(new Error('XHR error')); };
+        x.send(null);
+      }catch(e){ rej(e); }
+    });
+  }
+  function loadReadonly(){
+    xhrText('../state/last-report.json').then(function(t){
+      var j=null; try{ j=JSON.parse(t); }catch(e){}
+      if(!j||!j.json){ log('⚠ last-report.json 解析失败'); return; }
+      renderStatus(j.json);
+      log('✓ 最近报告('+j.ts+'):GMS installed='+j.json.gms_installed+' · stopped='+j.json.gms_stopped+' · gcm_service='+j.json.gcm_service+' · receivers='+j.json.receivers);
+      var tgs=(j.json.targets||[]).map(function(x){return x.pkg+(x.installed?(x.stopped?' ⚠stopped':''):' (未安装)');});
+      if(tgs.length)log('  守护目标: '+tgs.join(' · '));
+    },function(){
+      log('⚠ 尚无 state/last-report.json —— 请回模块列表点「操作」按钮跑一轮检测,再回来点「刷新报告」。');
+    });
+    xhrText('../config/targets.txt').then(function(t){
+      var list=String(t).split('\n').map(function(s){return s.trim();}).filter(function(s){return s&&!/^#/.test(s);});
+      var el=$('tagList');el.innerHTML='';
+      list.forEach(function(p){
+        var sp=document.createElement('span');sp.className='tag';
+        sp.textContent=p+(p==='com.google.android.gms'?' · 核心':'');
+        el.appendChild(sp);
+      });
+    },function(){/* targets.txt 不存在:首次安装尚未生成,静默 */});
+  }
 
   function busy(b){['bCheck','bFix','bWatch','bAdd','bReset'].forEach(function(id){$(id).disabled=b});}
 
@@ -240,7 +296,19 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   $('modeChip').textContent=BR.chip||BR.kind;
 
   if(BR.kind==='none'){
-    log('⚠ 未识别到任何 shell 桥(Shizuku/ShizukuNext)。请确认:管理器支持模块 WebUI · 模块已启用 · access mode = Full access。以上 [diag] 行请截图反馈。');
+    RO=true;
+    $('modeChip').textContent=BR.dead?'只读 · 桥坏死':'只读 · 无桥';
+    if(BR.dead){
+      $('deadCard').style.display='block';
+      log('⚠ window.Shizuku 已注入但方法数为 0 —— 本管理器 release 版的 R8 混淆剥离了全部 @JavascriptInterface 方法(已知构建缺陷,debug 版正常)。所有模块的 WebUI 均受害,非本模块问题。');
+    }else{
+      log('⚠ 未识别到任何 shell 桥(Shizuku/ShizukuNext)。请确认:管理器支持模块 WebUI · 模块已启用 · access mode = Full access。以上 [diag] 行请截图反馈。');
+    }
+    busy(true);                       // 操作/目标编辑全部依赖桥,禁用
+    $('bRefresh').style.display='inline-block';
+    $('bRefresh').onclick=function(){ log('▶ 刷新只读报告…'); loadReadonly(); };
+    log('▶ 进入只读模式:读取最近一次检测报告(state/last-report.json)…');
+    loadReadonly();
   }else{
     if(BR.blocked){
       log('⚠ 当前 access mode = '+BR.chip+' :shell bridge 需要 Full access(部分管理器还需 Trust/信任)。改完后重进本页。');
