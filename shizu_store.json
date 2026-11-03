@@ -1,0 +1,7 @@
+{
+  "name": "Berry-FCM",
+  "description": "OriginOS/vivo FCM push guardian — Shizuku/Shevery ADB module (shell-only port of OriginOS FCM Guardian)",
+  "requires_shizuku": true,
+  "license": "MIT",
+  "homepage": "https://github.com/miuiadmin/Berry-FCM"
+}
