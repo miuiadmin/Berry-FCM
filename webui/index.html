@@ -54,7 +54,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   <div class="logo">🫐</div>
   <div>
     <h1>Berry-FCM</h1>
-    <div class="sub">OriginOS FCM 推送守护 · v1.0.1</div>
+    <div class="sub">OriginOS FCM 推送守护 · v1.0.2</div>
   </div>
   <span class="chip" id="modeChip">…</span>
 </header>
@@ -99,7 +99,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
 
 <div class="card">
   <h2>输出</h2>
-  <pre id="console">待命。Bridge 不可用时请确认:模块已启用 · access mode = Full access · module.prop 声明 usesShellBridge=true。</pre>
+  <pre id="console">待命。</pre>
 </div>
 
 <footer>Berry-FCM · ported from OriginOS FCM Guardian (io.github.originosfcmguardian) · shell-only uid 2000</footer>
@@ -108,17 +108,109 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
 (function(){
   var $=function(id){return document.getElementById(id)};
   var con=$('console');
-  var MOD='';            // moduleDir (absolute) — bridge exec has no default cwd on Shizuku-Next
   function log(s){con.textContent+= (con.textContent?'\n':'')+s; con.scrollTop=con.scrollHeight;}
-  function modcmd(rel){return 'sh "'+(MOD?MOD+'/':'')+rel+'"';}   // absolute path for both managers
 
-  function sh(cmd,opt){
-    try{
-      var rj = opt ? window.Shizuku.execWithOptions(cmd,JSON.stringify(opt))
-                   : window.Shizuku.exec(cmd);
-      return JSON.parse(rj);
-    }catch(e){ return {ok:false,exitCode:-1,stderr:'bridge error: '+e}; }
+  /* ============ 桥自适应层 v1.0.2 ============
+     sync  : window.Shizuku.exec(cmd) / execWithOptions(cmd,optsJson) -> JSON 字符串
+             (rushiranpise Shizuku-Next / Shevery;无默认 cwd,须绝对路径)
+     async : window.ShizukuNext.exec(cmd) 无返回值,输出走 onOutput/onComplete/onError 回调;
+             execScript(relPath) 先把整个模块拷到 /data/local/tmp 再执行
+             (yijiacloud "Shizuku Next 增强版")                                */
+
+  var BR={kind:'none',mod:'',chip:''};   // kind: sync | async | none
+
+  function jkeys(o){
+    var ks=[];
+    try{Object.getOwnPropertyNames(o).forEach(function(k){try{if(typeof o[k]==='function')ks.push(k);}catch(e){}});}catch(e){}
+    return ks;
   }
+
+  function detect(){
+    var S=window.Shizuku, N=window.ShizukuNext, lines=[];
+    lines.push('[diag] '+location.href);
+    if(S){
+      var sk=jkeys(S);
+      lines.push('[diag] window.Shizuku keys=['+sk.join(',')+']');
+      if(typeof S.exec==='function'||typeof S.execWithOptions==='function'){
+        BR.kind='sync';
+        var info=null;
+        try{
+          if(typeof S.getModuleInfo==='function'){
+            var raw=S.getModuleInfo();
+            info=(typeof raw==='string')?JSON.parse(raw):raw;
+          }
+        }catch(e){ lines.push('[diag] getModuleInfo 解析失败: '+e); }
+        if(info){
+          BR.info=info;
+          BR.mod=(typeof info.moduleDir==='string'&&info.moduleDir)?info.moduleDir
+                :((typeof info.webRoot==='string'&&info.webRoot)?String(info.webRoot).replace(/\/webui\/?$/,''):'');
+          BR.chip=info.accessMode||info.mode||'';
+          if(info.trusted)BR.chip+=' · trusted';
+          if(info.permissions&&info.permissions.webBridge===false)BR.blocked=true;
+          else if(/safe/i.test(String(BR.chip)))BR.blocked=true;
+        }
+      }else{
+        lines.push('[diag] window.Shizuku 存在但没有 exec(旧版/阉割桥?)');
+      }
+    }else{ lines.push('[diag] window.Shizuku 不存在'); }
+
+    if(N&&typeof N.exec==='function'){
+      if(BR.kind!=='sync'){ BR.kind='async'; BR.chip='ShizukuNext 增强版'; }
+      lines.push('[diag] window.ShizukuNext keys=['+jkeys(N).join(',')+']');
+      if(typeof N.getModuleDir==='function'){ try{ var d=N.getModuleDir(); if(d)lines.push('[diag] getModuleDir='+d); }catch(e){} }
+    }
+    if(BR.kind==='none'){
+      ['ksu','apatch','mmrl'].forEach(function(n){ if(window[n])lines.push('[diag] window.'+n+' 存在(未适配)'); });
+    }
+    return lines;
+  }
+
+  /* ---- 同步桥:exec 返回 JSON 字符串 ---- */
+  function syncRun(cmd,opt){
+    return new Promise(function(res){
+      try{
+        var S=window.Shizuku, rj;
+        if(opt&&typeof S.execWithOptions==='function') rj=S.execWithOptions(cmd,JSON.stringify(opt));
+        else rj=S.exec(cmd);
+        var r=(typeof rj==='string')?JSON.parse(rj):rj;
+        res(r&&typeof r==='object'?r:{exitCode:-1,stdout:String(rj),stderr:''});
+      }catch(e){ res({exitCode:-1,stdout:'',stderr:'bridge error: '+e}); }
+    });
+  }
+
+  /* ---- 异步桥:回调流 -> Promise(串行队列防交错) ---- */
+  var q=Promise.resolve();
+  function asyncRun(invoke,live){
+    return q=q.then(function(){
+      return new Promise(function(res){
+        var N=window.ShizukuNext, out=[],err=[],done=false,timer=null;
+        var pO=N.onOutput,pE=N.onError,pC=N.onComplete;
+        function fin(code){
+          if(done)return; done=true;
+          N.onOutput=pO||null;N.onError=pE||null;N.onComplete=pC||null;
+          if(timer)clearTimeout(timer);
+          res({exitCode:code,stdout:out.join('\n'),stderr:err.join('\n')});
+        }
+        N.onOutput=function(t,ty){ if(ty==='stderr')err.push(t);else out.push(t); if(live)live(t,ty); if(pO){try{pO(t,ty);}catch(e){}} };
+        N.onError=function(m){ if(pE){try{pE(m);}catch(e){}} if(!done){ done=true; N.onOutput=pO||null;N.onError=pE||null;N.onComplete=pC||null; if(timer)clearTimeout(timer); res({exitCode:-1,stdout:out.join('\n'),stderr:String(m)}); } };
+        N.onComplete=function(c){ if(pC){try{pC(c);}catch(e){}} fin(c); };
+        try{ invoke(); }catch(e){ fin(-1); }
+        timer=setTimeout(function(){ if(!done){ err.push('⚠ 300s 超时'); fin(-1);} },300000);
+      });
+    });
+  }
+
+  /* ---- 统一入口 ---- */
+  function runScript(rel,args,opt,live){
+    if(BR.kind==='async'){
+      var p=rel+(args?' '+args:'');
+      return asyncRun(function(){window.ShizukuNext.execScript(p);},live);
+    }
+    var cmd='sh "'+(BR.mod?BR.mod+'/':'')+rel+'"'+(args?' '+args:'');
+    return syncRun(cmd,opt);
+  }
+  function runRaw(cmd){ return BR.kind==='async'?asyncRun(function(){window.ShizukuNext.exec(cmd);}) : syncRun(cmd,null); }
+
   function busy(b){['bCheck','bFix','bWatch','bAdd','bReset'].forEach(function(id){$(id).disabled=b});}
 
   function setRow(dotId,vId,ok,text,warnIf){
@@ -135,58 +227,71 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     if(m){try{return JSON.parse(m[1]);}catch(e){}}
     return null;
   }
+  function show(r){
+    if(!r)return;
+    log(r.stdout||r.stderr||('(exit '+r.exitCode+')'));
+    var j=parseJson(r.stdout); if(j)renderStatus(j);
+    return j;
+  }
 
-  if(!window.Shizuku){ log('⚠ window.Shizuku 不存在:模块未启用或策略不允许 WebUI bridge。'); }
-  else{
-    var mode='',bridgeBlocked=false;
-    try{
-      var info=JSON.parse(window.Shizuku.getModuleInfo());
-      MOD=info.moduleDir||'';
-      mode=info.accessMode||'?';
-      bridgeBlocked=(info.permissions && info.permissions.webBridge===false);
-      $('modeChip').textContent=mode+(info.trusted?' · trusted':'');
-    }catch(e){ $('modeChip').textContent='?'; }
-    if(!MOD){ log('⚠ 未能取得 moduleDir,命令将以相对路径执行(部分管理器不支持)。'); }
-    if(bridgeBlocked || /safe/i.test(mode)){
-      log('⚠ 当前 access mode = '+mode+' :shell bridge 需要 **Full access**。请回到模块页点调节(⚙)图标切到 Full access 后重进本页。');
+  /* ---- 启动:诊断 -> 模块目录 -> 自动检测 ---- */
+  var lines=detect();
+  lines.forEach(log);
+  $('modeChip').textContent=BR.chip||BR.kind;
+
+  if(BR.kind==='none'){
+    log('⚠ 未识别到任何 shell 桥(Shizuku/ShizukuNext)。请确认:管理器支持模块 WebUI · 模块已启用 · access mode = Full access。以上 [diag] 行请截图反馈。');
+  }else{
+    if(BR.blocked){
+      log('⚠ 当前 access mode = '+BR.chip+' :shell bridge 需要 Full access(部分管理器还需 Trust/信任)。改完后重进本页。');
+    }
+    if(BR.kind==='sync'&&!BR.mod){
+      log('⚠ getModuleInfo 未给 moduleDir,尝试文件系统探测…');
+      runRaw('for d in /storage/emulated/0/Android/data/*/files/modules/berry_fcm /data/local/tmp/sn_mod_berry_fcm /data/data/moe.shizuku.privileged.api/files/modules/berry_fcm /data/adb/modules/berry_fcm; do if [ -f "$d/module.prop" ]; then echo "$d"; break; fi; done 2>/dev/null').then(function(r){
+        var m=String(r.stdout||'').trim().split('\n')[0];
+        if(m&&m.charAt(0)==='/'){BR.mod=m;log('[diag] moduleDir(探测)='+m);auto();}
+        else log('⚠ 探测失败:命令需要绝对路径,请截图 [diag] 行反馈。');
+      });
+    }else{
+      if(BR.kind==='async')log('[注意] 增强版桥:每次执行会把模块重新拷到 /data/local/tmp,守护目标的增删不持久(核心 GMS 守护不受影响)。');
+      auto();
     }
   }
 
+  function auto(){ doCheck().then(loadTargets); }
+
   function doCheck(){
     busy(true);log('▶ 检测…');
-    var r=sh(modcmd('lib/check.sh'));
-    log(r.stdout||r.stderr||('(exit '+r.exitCode+')'));
-    var j=parseJson(r.stdout); if(j)renderStatus(j);
-    busy(false);
+    return runScript('lib/check.sh').then(function(r){show(r);busy(false);});
   }
   function doFix(){
     busy(true);log('▶ 修复(unstop + 心跳)…');
-    var r=sh(modcmd('lib/fix.sh'),{timeoutSeconds:110});
-    log(r.stdout||r.stderr||('(exit '+r.exitCode+')'));
-    log('▶ 复检…');
-    var r2=sh(modcmd('lib/check.sh'));
-    log(r2.stdout||r2.stderr||('(exit '+r2.exitCode+')'));
-    var j=parseJson(r2.stdout); if(j)renderStatus(j);
-    busy(false);
+    return runScript('lib/fix.sh',null,{timeoutSeconds:110}).then(function(r1){
+      show(r1);log('▶ 复检…');
+      return runScript('lib/check.sh').then(function(r2){show(r2);busy(false);});
+    });
   }
   function doWatch(){
-    busy(true);log('▶ 监视 90 秒(每 15 秒巡检,后台保持亮屏即可)…');
-    var r=sh(modcmd('lib/watch.sh 90 15 4'),{timeoutSeconds:110});
-    log(r.stdout||r.stderr||('(exit '+r.exitCode+')'));
-    busy(false);
+    busy(true);log('▶ 监视 90 秒(每 15 秒巡检;增强版桥会实时滚动输出)…');
+    return runScript('lib/watch.sh','90 15 4',null,function(t,ty){ log((ty==='stderr'?'e|':'| ')+t); }).then(function(r){
+      if(BR.kind!=='async')log(r.stdout||r.stderr||('(exit '+r.exitCode+')'));
+      var j=parseJson(r.stdout); if(j)renderStatus(j);
+      busy(false);
+    });
   }
   function loadTargets(){
-    var r=sh(modcmd('lib/targets.sh list'));
-    var list=String(r.stdout||'').split('\n').filter(function(l){return l&&!l.startsWith('---')&&l!=='#'});
-    var el=$('tagList');el.innerHTML='';
-    list.forEach(function(p){
-      var t=document.createElement('span');t.className='tag';
-      var core=(p==='com.google.android.gms');
-      t.innerHTML='<span>'+p+(core?' · 核心':'')+'</span>'+(core?'':'<button data-p="'+p+'" title="移除">✕</button>');
-      el.appendChild(t);
-    });
-    Array.prototype.forEach.call(el.querySelectorAll('button'),function(b){
-      b.onclick=function(){var r=sh(modcmd('lib/targets.sh remove '+b.getAttribute('data-p')));log(r.stdout||r.stderr);loadTargets();};
+    return runScript('lib/targets.sh','list').then(function(r){
+      var list=String(r.stdout||'').split('\n').filter(function(l){return l&&!l.startsWith('---')&&l!=='#'});
+      var el=$('tagList');el.innerHTML='';
+      list.forEach(function(p){
+        var t=document.createElement('span');t.className='tag';
+        var core=(p==='com.google.android.gms');
+        t.innerHTML='<span>'+p+(core?' · 核心':'')+'</span>'+(core?'':'<button data-p="'+p+'" title="移除">✕</button>');
+        el.appendChild(t);
+      });
+      Array.prototype.forEach.call(el.querySelectorAll('button'),function(b){
+        b.onclick=function(){runScript('lib/targets.sh','remove '+b.getAttribute('data-p')).then(function(r){log(r.stdout||r.stderr);loadTargets();});};
+      });
     });
   }
 
@@ -197,13 +302,11 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     var v=$('pkgInput').value.trim();
     if(!v){return;}
     if(!/^[A-Za-z][A-Za-z0-9._]+$/.test(v)){log('✕ 包名不合法: '+v);return;}
-    var r=sh(modcmd('lib/targets.sh add '+v));log(r.stdout||r.stderr);$('pkgInput').value='';loadTargets();
+    runScript('lib/targets.sh','add '+v).then(function(r){log(r.stdout||r.stderr);$('pkgInput').value='';loadTargets();});
   };
-  $('bReset').onclick=function(){var r=sh(modcmd('lib/targets.sh reset'));log(r.stdout||r.stderr);loadTargets();};
-  $('bAuto').onclick=function(){var r=sh(modcmd('lib/links.sh autostart'));log(r.stdout||r.stderr);};
-  $('bNotif').onclick=function(){var r=sh(modcmd('lib/links.sh gmsnotif'));log(r.stdout||r.stderr);};
-
-  if(window.Shizuku){doCheck();loadTargets();}
+  $('bReset').onclick=function(){runScript('lib/targets.sh','reset').then(function(r){log(r.stdout||r.stderr);loadTargets();});};
+  $('bAuto').onclick=function(){runScript('lib/links.sh','autostart').then(function(r){log(r.stdout||r.stderr);});};
+  $('bNotif').onclick=function(){runScript('lib/links.sh','gmsnotif').then(function(r){log(r.stdout||r.stderr);});};
 })();
 </script>
 </body>
