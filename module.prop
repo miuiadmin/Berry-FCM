@@ -1,0 +1,11 @@
+id=berry_fcm
+name=Berry-FCM
+version=1.0.0
+versionCode=1
+author=miuiadmin
+description=OriginOS/vivo FCM 推送守护:检测并解除 GMS 与自选应用的 stopped 标记,发送 GCM 心跳唤醒推送链路。Shell-only, uid 2000。Port of OriginOS FCM Guardian (io.github.originosfcmguardian) privileged logic.
+banner=banner.png
+webui=webui
+action=action.sh
+usesShellBridge=true
+updateJson=https://raw.githubusercontent.com/miuiadmin/Berry-FCM/main/update.json

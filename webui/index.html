@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Berry-FCM</title>
+<style>
+:root{
+  --bg:#0e0b12;--card:#171220;--card2:#1e1729;--line:#2c2338;
+  --txt:#efe9f5;--dim:#9d92ad;--acc:#c2437f;--acc2:#8b5cf6;
+  --ok:#34d399;--warn:#fbbf24;--bad:#f87171;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font:15px/1.6 -apple-system,"PingFang SC","Noto Sans SC",sans-serif;
+  padding:14px 12px 40px;max-width:640px;margin:0 auto}
+header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.logo{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,var(--acc),var(--acc2));
+  display:flex;align-items:center;justify-content:center;font-size:20px}
+h1{font-size:19px;font-weight:700}
+.sub{font-size:12px;color:var(--dim)}
+.chip{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:99px;padding:1px 8px;margin-left:auto;white-space:nowrap}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.card h2{font-size:13px;color:var(--dim);font-weight:600;letter-spacing:.08em;margin-bottom:10px;text-transform:uppercase}
+.status-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed var(--line);font-size:14px}
+.status-row:last-child{border-bottom:none}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--dim);flex:none}
+.dot.ok{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.dot.bad{background:var(--bad);box-shadow:0 0 8px var(--bad)}
+.dot.warn{background:var(--warn)}
+.kv{color:var(--dim);font-size:12px;margin-left:auto}
+.btns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+button{background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:10px;
+  padding:10px 8px;font-size:14px;font-weight:600;cursor:pointer}
+button:active{opacity:.7}
+button:disabled{opacity:.4}
+button.primary{background:linear-gradient(135deg,var(--acc),var(--acc2));border:none}
+button.small{padding:6px 10px;font-size:12px;font-weight:500}
+.targets{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.tag{display:inline-flex;align-items:center;gap:6px;background:var(--card2);border:1px solid var(--line);
+  border-radius:99px;padding:4px 10px;font-size:13px}
+.tag button{border:none;background:none;color:var(--dim);padding:0 2px;font-size:14px}
+.addrow{display:flex;gap:8px}
+.addrow input{flex:1;background:var(--card2);border:1px solid var(--line);border-radius:10px;color:var(--txt);padding:8px 12px;font-size:14px}
+.links{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+pre#console{background:#0a0810;border:1px solid var(--line);border-radius:10px;padding:10px;
+  font:12px/1.5 ui-monospace,Menlo,monospace;color:#c9bfe0;white-space:pre-wrap;word-break:break-all;
+  max-height:340px;overflow-y:auto}
+.hint{font-size:12px;color:var(--dim);margin-top:8px}
+footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">🫐</div>
+  <div>
+    <h1>Berry-FCM</h1>
+    <div class="sub">OriginOS FCM 推送守护 · v1.0.0</div>
+  </div>
+  <span class="chip" id="modeChip">…</span>
+</header>
+
+<div class="card">
+  <h2>状态</h2>
+  <div class="status-row"><span class="dot" id="dGms"></span><span>GMS 已安装</span><span class="kv" id="vGms">—</span></div>
+  <div class="status-row"><span class="dot" id="dStop"></span><span>GMS stopped 标记</span><span class="kv" id="vStop">—</span></div>
+  <div class="status-row"><span class="dot" id="dSvc"></span><span>GcmService 运行</span><span class="kv" id="vSvc">—</span></div>
+  <div class="status-row"><span class="dot" id="dRecv"></span><span>GMS 已注册广播接收器</span><span class="kv" id="vRecv">—</span></div>
+</div>
+
+<div class="card">
+  <h2>操作</h2>
+  <div class="btns">
+    <button id="bCheck">立即检测</button>
+    <button id="bFix" class="primary">一键修复</button>
+    <button id="bWatch">监视 90 秒</button>
+  </div>
+  <div class="hint">修复 = 解除 stopped 标记(cmd package unstop)+ 三连 GCM 心跳;监视 = 90 秒内每 15 秒自动巡检并修复。Action 按钮同「一键修复」。</div>
+</div>
+
+<div class="card">
+  <h2>守护目标</h2>
+  <div class="targets" id="tagList"></div>
+  <div class="addrow">
+    <input id="pkgInput" placeholder="包名,如 org.telegram.messenger">
+    <button class="small" id="bAdd">添加</button>
+    <button class="small" id="bReset">重置</button>
+  </div>
+  <div class="hint">GMS 为核心目标不可移除。Telegram 等 IM 被 vivo 强杀后同样收不到推送,加进来一起守护。</div>
+</div>
+
+<div class="card">
+  <h2>vivo 快捷入口</h2>
+  <div class="links">
+    <button id="bAuto">后台自启动管理</button>
+    <button id="bNotif">GMS 通知设置</button>
+  </div>
+  <div class="hint">OriginOS 常悄悄关掉 GMS 通知渠道/自启动,这两个入口请定期检查(与原版 App 引导一致)。</div>
+</div>
+
+<div class="card">
+  <h2>输出</h2>
+  <pre id="console">待命。Bridge 不可用时请确认:模块已启用 · access mode = Full access · module.prop 声明 usesShellBridge=true。</pre>
+</div>
+
+<footer>Berry-FCM · ported from OriginOS FCM Guardian (io.github.originosfcmguardian) · shell-only uid 2000</footer>
+
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id)};
+  var con=$('console');
+  function log(s){con.textContent+= (con.textContent?'\n':'')+s; con.scrollTop=con.scrollHeight;}
+
+  function sh(cmd,opt){
+    try{
+      var rj = opt ? window.Shizuku.execWithOptions(cmd,JSON.stringify(opt))
+                   : window.Shizuku.exec(cmd);
+      return JSON.parse(rj);
+    }catch(e){ return {ok:false,exitCode:-1,stderr:'bridge error: '+e}; }
+  }
+  function busy(b){['bCheck','bFix','bWatch','bAdd','bReset'].forEach(function(id){$(id).disabled=b});}
+
+  function setRow(dotId,vId,ok,text,warnIf){
+    var d=$(dotId);d.className='dot '+(ok?'ok':(warnIf?'warn':'bad'));$(vId).textContent=text;
+  }
+  function renderStatus(j){
+    setRow('dGms','vGms',j.gms_installed===1,j.gms_installed?'yes':'no');
+    setRow('dStop','vStop',j.gms_stopped===0,j.gms_stopped?'true · 待修复':'false');
+    setRow('dSvc','vSvc',j.gcm_service===1,j.gcm_service?'running':'not running');
+    setRow('dRecv','vRecv',j.receivers>0,String(j.receivers));
+  }
+  function parseJson(out){
+    var m=String(out).match(/JSON: (\{.*\})/);
+    if(m){try{return JSON.parse(m[1]);}catch(e){}}
+    return null;
+  }
+
+  if(!window.Shizuku){ log('⚠ window.Shizuku 不存在:模块未启用或策略不允许 WebUI bridge。'); }
+  else{
+    try{
+      var info=JSON.parse(window.Shizuku.getModuleInfo());
+      $('modeChip').textContent=(info.accessMode||'?')+(info.trusted?' · trusted':'');
+    }catch(e){ $('modeChip').textContent='?'; }
+  }
+
+  function doCheck(){
+    busy(true);log('▶ 检测…');
+    var r=sh('sh lib/check.sh');
+    log(r.stdout||r.stderr||('(exit '+r.exitCode+')'));
+    var j=parseJson(r.stdout); if(j)renderStatus(j);
+    busy(false);
+  }
+  function doFix(){
+    busy(true);log('▶ 修复(unstop + 心跳)…');
+    var r=sh('sh lib/fix.sh',{timeoutSeconds:110});
+    log(r.stdout||r.stderr||('(exit '+r.exitCode+')'));
+    log('▶ 复检…');
+    var r2=sh('sh lib/check.sh');
+    log(r2.stdout||r2.stderr||('(exit '+r2.exitCode+')'));
+    var j=parseJson(r2.stdout); if(j)renderStatus(j);
+    busy(false);
+  }
+  function doWatch(){
+    busy(true);log('▶ 监视 90 秒(每 15 秒巡检,后台保持亮屏即可)…');
+    var r=sh('sh lib/watch.sh 90 15 4',{timeoutSeconds:110});
+    log(r.stdout||r.stderr||('(exit '+r.exitCode+')'));
+    busy(false);
+  }
+  function loadTargets(){
+    var r=sh('sh lib/targets.sh list');
+    var list=String(r.stdout||'').split('\n').filter(function(l){return l&&!l.startsWith('---')&&l!=='#'});
+    var el=$('tagList');el.innerHTML='';
+    list.forEach(function(p){
+      var t=document.createElement('span');t.className='tag';
+      var core=(p==='com.google.android.gms');
+      t.innerHTML='<span>'+p+(core?' · 核心':'')+'</span>'+(core?'':'<button data-p="'+p+'" title="移除">✕</button>');
+      el.appendChild(t);
+    });
+    Array.prototype.forEach.call(el.querySelectorAll('button'),function(b){
+      b.onclick=function(){var r=sh('sh lib/targets.sh remove '+b.getAttribute('data-p'));log(r.stdout||r.stderr);loadTargets();};
+    });
+  }
+
+  $('bCheck').onclick=doCheck;
+  $('bFix').onclick=doFix;
+  $('bWatch').onclick=doWatch;
+  $('bAdd').onclick=function(){
+    var v=$('pkgInput').value.trim();
+    if(!v){return;}
+    if(!/^[A-Za-z][A-Za-z0-9._]+$/.test(v)){log('✕ 包名不合法: '+v);return;}
+    var r=sh('sh lib/targets.sh add '+v);log(r.stdout||r.stderr);$('pkgInput').value='';loadTargets();
+  };
+  $('bReset').onclick=function(){var r=sh('sh lib/targets.sh reset');log(r.stdout||r.stderr);loadTargets();};
+  $('bAuto').onclick=function(){var r=sh('sh lib/links.sh autostart');log(r.stdout||r.stderr);};
+  $('bNotif').onclick=function(){var r=sh('sh lib/links.sh gmsnotif');log(r.stdout||r.stderr);};
+
+  if(window.Shizuku){doCheck();loadTargets();}
+})();
+</script>
+</body>
+</html>

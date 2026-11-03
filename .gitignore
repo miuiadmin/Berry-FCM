@@ -1,0 +1,9 @@
+# runtime dirs created by the module on device / during local testing
+dist/
+state/
+logs/
+config/
+
+# tooling
+__pycache__/
+.DS_Store
