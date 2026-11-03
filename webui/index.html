@@ -21,6 +21,8 @@ h1{font-size:19px;font-weight:700}
 .chip{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:99px;padding:1px 8px;margin-left:auto;white-space:nowrap}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
 .card h2{font-size:13px;color:var(--dim);font-weight:600;letter-spacing:.08em;margin-bottom:10px;text-transform:uppercase}
+.outhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.outhead h2{margin-bottom:0}
 .status-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed var(--line);font-size:14px}
 .status-row:last-child{border-bottom:none}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--dim);flex:none}
@@ -69,7 +71,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   <div class="logo">🫐</div>
   <div>
     <h1>Berry-FCM</h1>
-    <div class="sub">OriginOS FCM 推送守护 · v1.0.4</div>
+    <div class="sub">OriginOS FCM 推送守护 · v1.0.5</div>
   </div>
   <span class="chip" id="modeChip">…</span>
 </header>
@@ -139,8 +141,9 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
 </div>
 
 <div class="card">
-  <h2>输出</h2>
+  <div class="outhead"><h2>输出</h2><button class="small" id="bCopy">📋 复制日志</button></div>
   <pre id="console">待命。</pre>
+  <div class="hint">遇到问题时点「复制日志」,把整段文本发出去即可诊断,不用截图。</div>
 </div>
 
 <footer>Berry-FCM · ported from OriginOS FCM Guardian (io.github.originosfcmguardian) · shell-only uid 2000</footer>
@@ -337,9 +340,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     var t=$('toast');t.textContent=msg;t.className='show '+(kind||'');
     clearTimeout(toastTimer);toastTimer=setTimeout(function(){t.className='';},4200);
   }
-  var modalShown=false;
   function showModal(title,bodyHtml){
-    if(modalShown)return;modalShown=true;
     $('mTitle').textContent=title;$('mBody').innerHTML=bodyHtml;
     $('modalWrap').style.display='flex';
     $('mBtn').onclick=function(){$('modalWrap').style.display='none';};
@@ -373,6 +374,42 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     else if(r.exitCode!==0)toast('✕ 执行出错(exit '+r.exitCode+'),详情见输出','err');
     return r;
   }
+
+  /* ---- 一键复制诊断日志(纯 JS,不依赖桥;坏状态也能用) ---- */
+  function diagText(){
+    return '=== Berry-FCM 诊断报告 ===\n'+
+      '时间: '+new Date().toString()+'\n'+
+      '页面: '+location.href+'\n'+
+      'WebUI: v1.0.5 · 模块: '+((BR.info&&BR.info.version)||'?')+'('+((BR.info&&BR.info.versionCode)||'?')+')\n'+
+      '桥: '+BR.kind+(BR.dead?' · dead':'')+(BR.blocked?' · blocked':'')+(RO?' · readonly':'')+
+      ' · chip='+$('modeChip').textContent+'\n'+
+      'UA: '+navigator.userAgent+'\n'+
+      '--- 控制台输出 ---\n'+con.textContent+'\n=== 报告结束 ===';
+  }
+  function copyLog(){
+    var t=diagText();
+    function manualModal(){
+      showModal('请手动复制',
+        '<textarea id="mTa" readonly style="width:100%;height:220px;background:#0a0810;color:#c9bfe0;border:1px solid var(--line);border-radius:8px;padding:8px;font:12px/1.5 ui-monospace,Menlo,monospace"></textarea>'+
+        '<div style="font-size:12px;color:var(--dim);margin-top:6px">此环境不允许网页直接写剪贴板:长按上方文本 → 全选 → 复制,再粘贴发出去即可。</div>');
+      var ta=$('mTa');ta.value=t;
+      setTimeout(function(){try{ta.focus();ta.select();}catch(e){}},50);
+    }
+    function legacyCopy(){
+      try{
+        var ta=document.createElement('textarea');ta.value=t;
+        ta.style.position='fixed';ta.style.opacity='0';
+        document.body.appendChild(ta);ta.focus();ta.select();
+        var ok=false;try{ok=document.execCommand('copy');}catch(e){}
+        document.body.removeChild(ta);
+        if(ok)toast('✓ 诊断日志已复制,粘贴发出去即可','ok');else manualModal();
+      }catch(e){manualModal();}
+    }
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(t).then(function(){toast('✓ 诊断日志已复制,粘贴发出去即可','ok');},legacyCopy);
+    }else legacyCopy();
+  }
+  $('bCopy').onclick=copyLog;
 
   /* ---- 启动:诊断 -> 模块目录 -> 自动检测 ---- */
   var lines=detect();
