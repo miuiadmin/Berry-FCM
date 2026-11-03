@@ -71,7 +71,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   <div class="logo">🫐</div>
   <div>
     <h1>Berry-FCM</h1>
-    <div class="sub">OriginOS FCM 推送守护 · v1.0.5</div>
+    <div class="sub">OriginOS FCM 推送守护 · v1.0.6</div>
   </div>
   <span class="chip" id="modeChip">…</span>
 </header>
@@ -293,7 +293,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
       var j=null; try{ j=JSON.parse(t); }catch(e){}
       if(!j||!j.json){ log('⚠ last-report.json 解析失败'); return; }
       renderStatus(j.json);
-      log('✓ 最近报告('+j.ts+'):GMS installed='+j.json.gms_installed+' · stopped='+j.json.gms_stopped+' · gcm_service='+j.json.gcm_service+' · receivers='+j.json.receivers);
+      log('✓ 最近报告('+j.ts+'):probe='+('probe' in j.json?j.json.probe:'?')+' · GMS installed='+j.json.gms_installed+' · stopped='+j.json.gms_stopped+' · gcm_service='+j.json.gcm_service+' · receivers='+j.json.receivers);
       var tgs=(j.json.targets||[]).map(function(x){return x.pkg+(x.installed?(x.stopped?' ⚠stopped':''):' (未安装)');});
       if(tgs.length)log('  守护目标: '+tgs.join(' · '));
     },function(){
@@ -312,10 +312,21 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
 
   function busy(b){['bCheck','bFix','bWatch','bAdd','bReset'].forEach(function(id){$(id).disabled=b});}
 
+  function stripAnsi(s){ return String(s).replace(/\x1b\[[0-9;]*m/g,''); }
   function setRow(dotId,vId,ok,text,warnIf){
     var d=$(dotId);d.className='dot '+(ok?'ok':(warnIf?'warn':'bad'));$(vId).textContent=text;
   }
   function renderStatus(j){
+    // probe=0: dumpsys itself didn't answer → all-zero report is garbage,
+    // must not render as scary red "not installed"
+    if(j.probe===0){
+      setRow('dGms','vGms',false,'探测失败',true);
+      setRow('dStop','vStop',false,'未知',true);
+      setRow('dSvc','vSvc',false,'未知',true);
+      setRow('dRecv','vRecv',false,'未知',true);
+      if(!renderStatus._pbToast){renderStatus._pbToast=true;toast('⚠ 探测通道异常(命令无返回,结果不可信),稍后请重测','err');}
+      return;
+    }
     setRow('dGms','vGms',j.gms_installed===1,j.gms_installed?'yes':'no');
     setRow('dStop','vStop',j.gms_stopped===0,j.gms_stopped?'true · 待修复':'false');
     setRow('dSvc','vSvc',j.gcm_service===1,j.gcm_service?'running':'not running');
@@ -329,8 +340,10 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   function show(r){
     if(!r)return;
     if(refused(r)&&!BR.blocked)enterBlocked(false);
-    log(r.stdout||r.stderr||('(exit '+r.exitCode+')'));
-    var j=parseJson(r.stdout); if(j)renderStatus(j);
+    var out=stripAnsi(r.stdout||''), es=stripAnsi(r.stderr||'');
+    log(out||es||('(exit '+r.exitCode+')'));
+    if(out&&es)log('⚠ stderr:\n'+es);      // 警告行走 stderr,单独显示避免漏看
+    var j=parseJson(out); if(j)renderStatus(j);
     return j;
   }
 
@@ -380,7 +393,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     return '=== Berry-FCM 诊断报告 ===\n'+
       '时间: '+new Date().toString()+'\n'+
       '页面: '+location.href+'\n'+
-      'WebUI: v1.0.5 · 模块: '+((BR.info&&BR.info.version)||'?')+'('+((BR.info&&BR.info.versionCode)||'?')+')\n'+
+      'WebUI: v1.0.6 · 模块: '+((BR.info&&BR.info.version)||'?')+'('+((BR.info&&BR.info.versionCode)||'?')+')\n'+
       '桥: '+BR.kind+(BR.dead?' · dead':'')+(BR.blocked?' · blocked':'')+(RO?' · readonly':'')+
       ' · chip='+$('modeChip').textContent+'\n'+
       'UA: '+navigator.userAgent+'\n'+
@@ -473,8 +486,8 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   }
   function doWatch(){
     busy(true);log('▶ 监视 90 秒(每 15 秒巡检;增强版桥会实时滚动输出)…');
-    return runScript('lib/watch.sh','90 15 4',null,function(t,ty){ log((ty==='stderr'?'e|':'| ')+t); }).then(function(r){
-      if(BR.kind!=='async')log(r.stdout||r.stderr||('(exit '+r.exitCode+')'));
+    return runScript('lib/watch.sh','90 15 4',null,function(t,ty){ log((ty==='stderr'?'e|':'| ')+stripAnsi(t)); }).then(function(r){
+      if(BR.kind!=='async')log(stripAnsi(r.stdout||r.stderr)||('(exit '+r.exitCode+')'));
       var j=parseJson(r.stdout); if(j)renderStatus(j);
       busy(false);
     });

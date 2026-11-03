@@ -46,10 +46,21 @@ b_load_targets() {
 }
 
 # --- probes (read-only, all ported from the original's builders) ----------
-# installed: cmd package path --user 0 <pkg>   (original: e.smali probe)
+# installed: cmd package path (original: e.smali probe) with pm path fallback —
+# a transient cmd/binder hiccup must not read as "not installed"
+# (real-world: 2026-11-03 vivo/Android 17 — second run of check.sh 8s after a
+# healthy one had cmd+dumpsys return empty; GMS obviously hadn't vanished)
 b_pkg_installed() {
     _pkg="$1"
-    [ -n "$(cmd package path --user 0 "$_pkg" 2>/dev/null)" ]
+    [ -n "$(cmd package path --user 0 "$_pkg" 2>/dev/null)" ] && return 0
+    [ -n "$(pm path --user 0 "$_pkg" 2>/dev/null)" ] && return 0
+    return 1
+}
+
+# probe channel health: is dumpsys actually answering? separates "probes
+# broken" (report will read all-zeros) from "app really gone/uninstalled"
+b_probe_ok() {
+    [ -n "$(dumpsys -t 3 package "$GMS" 2>/dev/null | head -n 5)" ]
 }
 
 # stopped: dumpsys -t 3 package <pkg> -> "User 0: ... stopped=true"  (ie0.smali)

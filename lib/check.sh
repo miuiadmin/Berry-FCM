@@ -6,7 +6,8 @@
 b_identity_guard || exit 1
 
 # ---- collect ----
-GMS_OK=0; GMS_STOPPED=0; GCM_ALIVE=0; RECV=0
+GMS_OK=0; GMS_STOPPED=0; GCM_ALIVE=0; RECV=0; PROBE_OK=0
+b_probe_ok && PROBE_OK=1
 TARGET_JSON=""
 TARGET_LINES=""
 for pkg in $(b_load_targets); do
@@ -38,9 +39,16 @@ done
 
 # ---- human report ----
 b_head "Berry-FCM 状态检测 $(date '+%F %T')"
+if [ "$PROBE_OK" = "1" ]; then
+    b_ok "探测通道: dumpsys 正常"
+else
+    b_warn "探测通道异常: dumpsys 未返回数据(系统繁忙或权限临时受限),以下「未安装」结论不可信,请稍后重测"
+fi
 printf '%s' "$TARGET_LINES" | while IFS='|' read -r name state extra1 extra2 extra3; do
     [ -z "$name" ] && continue
-    if [ "$state" = "NOT-INSTALLED" ]; then
+    if [ "$state" = "NOT-INSTALLED" ] && [ "$PROBE_OK" = "0" ]; then
+        b_warn "$name 探测失败(命令无返回,非「未安装」)"
+    elif [ "$state" = "NOT-INSTALLED" ]; then
         b_warn "$name 未安装"
     else
         if printf '%s' "$extra1" | grep -q 'stopped=1'; then
@@ -58,8 +66,8 @@ b_log "      GcmService=no 或 已注册接收器=0 = GCM 链路未建立,可发
 # state/last-report.json is what the WebUI reads when the manager's JS bridge
 # is dead (rushiranpise/Shizuku-Next release builds strip @JavascriptInterface
 # via R8) — the page then renders this file over file:// XHR instead.
-J="$(printf '{"gms_installed":%s,"gms_stopped":%s,"gcm_service":%s,"receivers":%s,"targets":[%s]}' \
-    "$GMS_OK" "$GMS_STOPPED" "$GCM_ALIVE" "$RECV" "$(printf '%s' "$TARGET_JSON" | sed 's/,$//')")"
+J="$(printf '{"probe":%s,"gms_installed":%s,"gms_stopped":%s,"gcm_service":%s,"receivers":%s,"targets":[%s]}' \
+    "$PROBE_OK" "$GMS_OK" "$GMS_STOPPED" "$GCM_ALIVE" "$RECV" "$(printf '%s' "$TARGET_JSON" | sed 's/,$//')")"
 if mkdir -p "$STATE_DIR" 2>/dev/null && [ -w "$STATE_DIR" ]; then
     printf '{"ts":"%s","kind":"check","json":%s}\n' \
         "$(date '+%F %T')" "$J" > "$STATE_DIR/last-report.json" 2>/dev/null
