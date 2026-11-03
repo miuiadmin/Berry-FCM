@@ -29,10 +29,14 @@ vivo OriginOS 的 iManager / 后台清理会把应用置为 `stopped` 状态(强
 
 ## 安装
 
+**方式 A · Shevery 模块市场(推荐)**:Shevery → Modules → Catalog(首次需填一个 GitHub PAT,只用于调 api.github.com)→ 搜 **Berry-FCM** → 安装模式选 **Release ZIP**(装的正是本仓 release 里的成品 zip;Sources 模式会从源码树现打包,亦可用)。
+
+**方式 B · 手动 ZIP**:下载 [dist/Berry-FCM-1.0.0.zip](https://github.com/miuiadmin/Berry-FCM/releases/latest) → Shevery → Modules → Install from ZIP。
+
+无论哪种方式,装完都要:
 1. 手机装好 [Shevery](https://github.com/HmnDev-Tech/shevery)(或 Shizuku-Next),以**无线调试/ADB** 方式激活(不要用 root —— 原版硬性要求 shell uid 2000,模块同样校验);
-2. 模块页 → 从 ZIP 安装 → 选 `dist/Berry-FCM-1.0.0.zip`;
-3. 模块设置:**Access mode = Full access**,并打开 **Allow background actions**(service.sh 自愈需要;Safe 模式按设计屏蔽它);
-4. WebUI 需要 `usesShellBridge=true`(已声明)+ Full access,在模块卡片打开即用。
+2. 模块设置:**Access mode = Full access**,并打开 **Allow background actions**(service.sh 自愈需要;Safe 模式按设计屏蔽它);
+3. WebUI 需要 `usesShellBridge=true`(已声明)+ Full access,在模块卡片打开即用。
 
 ## 使用
 
