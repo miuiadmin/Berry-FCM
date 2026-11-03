@@ -46,6 +46,21 @@ pre#console{background:#0a0810;border:1px solid var(--line);border-radius:10px;p
   font:12px/1.5 ui-monospace,Menlo,monospace;color:#c9bfe0;white-space:pre-wrap;word-break:break-all;
   max-height:340px;overflow-y:auto}
 .hint{font-size:12px;color:var(--dim);margin-top:8px}
+.card.warn{border-color:#7c5a10}
+.card.err{border-color:#7f1d1d}
+#modalWrap{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
+.modal{background:var(--card);border:1px solid var(--line);border-radius:16px;max-width:420px;width:100%;padding:18px;box-shadow:0 10px 40px rgba(0,0,0,.6)}
+.modal h3{font-size:16px;margin-bottom:10px}
+.modal .mbody{font-size:13.5px;line-height:1.85;color:var(--txt)}
+.modal .mbody ol{padding-left:20px;margin:8px 0}
+.modal .mbody b{color:var(--warn)}
+.modal button{margin-top:12px;width:100%;padding:11px}
+#toast{position:fixed;left:50%;transform:translateX(-50%) translateY(20px);bottom:24px;max-width:92%;
+  background:#241a2e;border:1px solid var(--line);color:var(--txt);padding:10px 16px;border-radius:12px;
+  font-size:13px;opacity:0;transition:all .25s;z-index:60;pointer-events:none;box-shadow:0 6px 24px rgba(0,0,0,.5)}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.err{border-color:#7f1d1d}
+#toast.ok{border-color:#14532d}
 footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
 </style>
 </head>
@@ -54,10 +69,26 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   <div class="logo">🫐</div>
   <div>
     <h1>Berry-FCM</h1>
-    <div class="sub">OriginOS FCM 推送守护 · v1.0.3</div>
+    <div class="sub">OriginOS FCM 推送守护 · v1.0.4</div>
   </div>
   <span class="chip" id="modeChip">…</span>
 </header>
+
+<div class="card warn" id="safeCard" style="display:none">
+  <h2 style="color:var(--warn)">⚠ 权限不足:当前为 Safe 模式</h2>
+  <div style="font-size:13.5px;line-height:1.85">
+    检测/修复按钮需要 <b>Full access</b> 权限才会被管理器放行,按下面步骤打开:
+    <ol style="padding-left:18px;margin:6px 0">
+      <li>返回<b>模块列表</b></li>
+      <li>点 Berry-FCM 卡片上的 <b>⚙ 调节图标</b></li>
+      <li>Access mode 选 <b>Full access</b></li>
+      <li>顺手打开 <b>Allow background actions</b>(开机自愈需要)</li>
+      <li>回到本页,点下方「重新检测权限」</li>
+    </ol>
+    等待期间,下方状态区会显示最近一次检测的只读报告。
+  </div>
+  <button class="primary small" id="bRecheck" style="margin-top:8px">⟳ 重新检测权限</button>
+</div>
 
 <div class="card" id="deadCard" style="display:none;border-color:#7f1d1d">
   <h2 style="color:#f87171">WebUI 桥不可用(管理器缺陷 · 非本模块问题)</h2>
@@ -113,6 +144,15 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
 </div>
 
 <footer>Berry-FCM · ported from OriginOS FCM Guardian (io.github.originosfcmguardian) · shell-only uid 2000</footer>
+
+<div id="modalWrap" style="display:none">
+  <div class="modal">
+    <h3 id="mTitle"></h3>
+    <div class="mbody" id="mBody"></div>
+    <button class="primary" id="mBtn">我知道了</button>
+  </div>
+</div>
+<div id="toast"></div>
 
 <script>
 (function(){
@@ -285,9 +325,53 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   }
   function show(r){
     if(!r)return;
+    if(refused(r)&&!BR.blocked)enterBlocked(false);
     log(r.stdout||r.stderr||('(exit '+r.exitCode+')'));
     var j=parseJson(r.stdout); if(j)renderStatus(j);
     return j;
+  }
+
+  /* ---- 弹窗 / 提示条(阻塞状态必须显眼,不能只躺控制台) ---- */
+  var toastTimer=null;
+  function toast(msg,kind){
+    var t=$('toast');t.textContent=msg;t.className='show '+(kind||'');
+    clearTimeout(toastTimer);toastTimer=setTimeout(function(){t.className='';},4200);
+  }
+  var modalShown=false;
+  function showModal(title,bodyHtml){
+    if(modalShown)return;modalShown=true;
+    $('mTitle').textContent=title;$('mBody').innerHTML=bodyHtml;
+    $('modalWrap').style.display='flex';
+    $('mBtn').onclick=function(){$('modalWrap').style.display='none';};
+  }
+  var SAFE_STEPS='<ol><li>返回<b>模块列表</b></li><li>点 Berry-FCM 卡片上的 <b>⚙ 调节图标</b></li>'+
+    '<li>Access mode 选 <b>Full access</b></li><li>打开 <b>Allow background actions</b>(开机自愈需要)</li>'+
+    '<li>回到本页点「重新检测权限」</li></ol>';
+
+  function enterBlocked(withModal){
+    BR.blocked=true;
+    $('modeChip').textContent='Safe · 需开 Full access';
+    $('safeCard').style.display='block';
+    busy(true);                                   // Safe 下按钮只会拿到管理器拒绝
+    $('bRecheck').onclick=function(){location.reload();};
+    if(withModal){
+      showModal('需要 Full access 权限','WebUI 的检测/修复按钮在 <b>Safe</b> 模式下会被管理器拒绝。'+SAFE_STEPS);
+    }else{
+      toast('✕ 命令被管理器拒绝:当前 Safe 模式,请开 Full access','err');
+    }
+    log('⚠ 权限不足(Safe):操作按钮已停用。开 Full access + Allow background actions 后点「重新检测权限」。');
+    log('▶ 等待期间显示最近一次只读报告:');
+    loadReadonly();
+  }
+  function refused(r){
+    var s=String((r&&r.stderr)||'')+' '+String((r&&r.stdout)||'');
+    return /no shell bridge/i.test(s);
+  }
+  function report(r){
+    if(!r)return r;
+    if(refused(r)&&!BR.blocked)enterBlocked(false);
+    else if(r.exitCode!==0)toast('✕ 执行出错(exit '+r.exitCode+'),详情见输出','err');
+    return r;
   }
 
   /* ---- 启动:诊断 -> 模块目录 -> 自动检测 ---- */
@@ -300,7 +384,11 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     $('modeChip').textContent=BR.dead?'只读 · 桥坏死':'只读 · 无桥';
     if(BR.dead){
       $('deadCard').style.display='block';
-      log('⚠ window.Shizuku 已注入但方法数为 0 —— 本管理器 release 版的 R8 混淆剥离了全部 @JavascriptInterface 方法(已知构建缺陷,debug 版正常)。所有模块的 WebUI 均受害,非本模块问题。');
+      showModal('WebUI 桥不可用(管理器缺陷)',
+        '本管理器的 <b>release 版</b>打包时把网页桥方法全剥离了,<b>所有模块</b>的 WebUI 均受影响(非本模块问题)。'+
+        '<ol><li>把 Shizuku-Next <b>升级到 v14.0.32 及以上</b>即可修复</li>'+
+        '<li>或用模块卡片的<b>「操作」按钮</b>执行检测/修复(原生路径,不受影响)</li></ol>本页暂转只读模式。');
+      log('⚠ window.Shizuku 已注入但方法数为 0 —— 管理器 release 版 R8 剥离桥方法(已知缺陷,v14.0.32 已修)。所有模块的 WebUI 均受害,非本模块问题。');
     }else{
       log('⚠ 未识别到任何 shell 桥(Shizuku/ShizukuNext)。请确认:管理器支持模块 WebUI · 模块已启用 · access mode = Full access。以上 [diag] 行请截图反馈。');
     }
@@ -311,9 +399,8 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     loadReadonly();
   }else{
     if(BR.blocked){
-      log('⚠ 当前 access mode = '+BR.chip+' :shell bridge 需要 Full access(部分管理器还需 Trust/信任)。改完后重进本页。');
-    }
-    if(BR.kind==='sync'&&!BR.mod){
+      enterBlocked(true);
+    }else if(BR.kind==='sync'&&!BR.mod){
       log('⚠ getModuleInfo 未给 moduleDir,尝试文件系统探测…');
       runRaw('for d in /storage/emulated/0/Android/data/*/files/modules/berry_fcm /data/local/tmp/sn_mod_berry_fcm /data/data/moe.shizuku.privileged.api/files/modules/berry_fcm /data/adb/modules/berry_fcm; do if [ -f "$d/module.prop" ]; then echo "$d"; break; fi; done 2>/dev/null').then(function(r){
         var m=String(r.stdout||'').trim().split('\n')[0];
@@ -330,13 +417,21 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
 
   function doCheck(){
     busy(true);log('▶ 检测…');
-    return runScript('lib/check.sh').then(function(r){show(r);busy(false);});
+    return runScript('lib/check.sh').then(function(r){
+      show(r);
+      if(r.exitCode!==0&&!refused(r))toast('✕ 检测执行出错(exit '+r.exitCode+'),详情见输出','err');
+      busy(false);
+    });
   }
   function doFix(){
     busy(true);log('▶ 修复(unstop + 心跳)…');
     return runScript('lib/fix.sh',null,{timeoutSeconds:110}).then(function(r1){
       show(r1);log('▶ 复检…');
-      return runScript('lib/check.sh').then(function(r2){show(r2);busy(false);});
+      return runScript('lib/check.sh').then(function(r2){
+        show(r2);
+        if(!BR.blocked)toast(r1.exitCode===0?'✓ 修复完成':'⚠ 修复未完全成功(exit '+r1.exitCode+'),详情见输出',r1.exitCode===0?'ok':'err');
+        busy(false);
+      });
     });
   }
   function doWatch(){
@@ -358,7 +453,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
         el.appendChild(t);
       });
       Array.prototype.forEach.call(el.querySelectorAll('button'),function(b){
-        b.onclick=function(){runScript('lib/targets.sh','remove '+b.getAttribute('data-p')).then(function(r){log(r.stdout||r.stderr);loadTargets();});};
+        b.onclick=function(){runScript('lib/targets.sh','remove '+b.getAttribute('data-p')).then(function(r){report(r);log(r.stdout||r.stderr);loadTargets();});};
       });
     });
   }
@@ -369,12 +464,12 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   $('bAdd').onclick=function(){
     var v=$('pkgInput').value.trim();
     if(!v){return;}
-    if(!/^[A-Za-z][A-Za-z0-9._]+$/.test(v)){log('✕ 包名不合法: '+v);return;}
-    runScript('lib/targets.sh','add '+v).then(function(r){log(r.stdout||r.stderr);$('pkgInput').value='';loadTargets();});
+    if(!/^[A-Za-z][A-Za-z0-9._]+$/.test(v)){log('✕ 包名不合法: '+v);toast('✕ 包名不合法','err');return;}
+    runScript('lib/targets.sh','add '+v).then(function(r){report(r);log(r.stdout||r.stderr);$('pkgInput').value='';loadTargets();});
   };
-  $('bReset').onclick=function(){runScript('lib/targets.sh','reset').then(function(r){log(r.stdout||r.stderr);loadTargets();});};
-  $('bAuto').onclick=function(){runScript('lib/links.sh','autostart').then(function(r){log(r.stdout||r.stderr);});};
-  $('bNotif').onclick=function(){runScript('lib/links.sh','gmsnotif').then(function(r){log(r.stdout||r.stderr);});};
+  $('bReset').onclick=function(){runScript('lib/targets.sh','reset').then(function(r){report(r);log(r.stdout||r.stderr);loadTargets();});};
+  $('bAuto').onclick=function(){runScript('lib/links.sh','autostart').then(function(r){report(r);log(r.stdout||r.stderr);});};
+  $('bNotif').onclick=function(){runScript('lib/links.sh','gmsnotif').then(function(r){report(r);log(r.stdout||r.stderr);});};
 })();
 </script>
 </body>
