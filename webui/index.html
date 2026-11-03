@@ -54,7 +54,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   <div class="logo">🫐</div>
   <div>
     <h1>Berry-FCM</h1>
-    <div class="sub">OriginOS FCM 推送守护 · v1.0.0</div>
+    <div class="sub">OriginOS FCM 推送守护 · v1.0.1</div>
   </div>
   <span class="chip" id="modeChip">…</span>
 </header>
@@ -108,7 +108,9 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
 (function(){
   var $=function(id){return document.getElementById(id)};
   var con=$('console');
+  var MOD='';            // moduleDir (absolute) — bridge exec has no default cwd on Shizuku-Next
   function log(s){con.textContent+= (con.textContent?'\n':'')+s; con.scrollTop=con.scrollHeight;}
+  function modcmd(rel){return 'sh "'+(MOD?MOD+'/':'')+rel+'"';}   // absolute path for both managers
 
   function sh(cmd,opt){
     try{
@@ -136,37 +138,45 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
 
   if(!window.Shizuku){ log('⚠ window.Shizuku 不存在:模块未启用或策略不允许 WebUI bridge。'); }
   else{
+    var mode='',bridgeBlocked=false;
     try{
       var info=JSON.parse(window.Shizuku.getModuleInfo());
-      $('modeChip').textContent=(info.accessMode||'?')+(info.trusted?' · trusted':'');
+      MOD=info.moduleDir||'';
+      mode=info.accessMode||'?';
+      bridgeBlocked=(info.permissions && info.permissions.webBridge===false);
+      $('modeChip').textContent=mode+(info.trusted?' · trusted':'');
     }catch(e){ $('modeChip').textContent='?'; }
+    if(!MOD){ log('⚠ 未能取得 moduleDir,命令将以相对路径执行(部分管理器不支持)。'); }
+    if(bridgeBlocked || /safe/i.test(mode)){
+      log('⚠ 当前 access mode = '+mode+' :shell bridge 需要 **Full access**。请回到模块页点调节(⚙)图标切到 Full access 后重进本页。');
+    }
   }
 
   function doCheck(){
     busy(true);log('▶ 检测…');
-    var r=sh('sh lib/check.sh');
+    var r=sh(modcmd('lib/check.sh'));
     log(r.stdout||r.stderr||('(exit '+r.exitCode+')'));
     var j=parseJson(r.stdout); if(j)renderStatus(j);
     busy(false);
   }
   function doFix(){
     busy(true);log('▶ 修复(unstop + 心跳)…');
-    var r=sh('sh lib/fix.sh',{timeoutSeconds:110});
+    var r=sh(modcmd('lib/fix.sh'),{timeoutSeconds:110});
     log(r.stdout||r.stderr||('(exit '+r.exitCode+')'));
     log('▶ 复检…');
-    var r2=sh('sh lib/check.sh');
+    var r2=sh(modcmd('lib/check.sh'));
     log(r2.stdout||r2.stderr||('(exit '+r2.exitCode+')'));
     var j=parseJson(r2.stdout); if(j)renderStatus(j);
     busy(false);
   }
   function doWatch(){
     busy(true);log('▶ 监视 90 秒(每 15 秒巡检,后台保持亮屏即可)…');
-    var r=sh('sh lib/watch.sh 90 15 4',{timeoutSeconds:110});
+    var r=sh(modcmd('lib/watch.sh 90 15 4'),{timeoutSeconds:110});
     log(r.stdout||r.stderr||('(exit '+r.exitCode+')'));
     busy(false);
   }
   function loadTargets(){
-    var r=sh('sh lib/targets.sh list');
+    var r=sh(modcmd('lib/targets.sh list'));
     var list=String(r.stdout||'').split('\n').filter(function(l){return l&&!l.startsWith('---')&&l!=='#'});
     var el=$('tagList');el.innerHTML='';
     list.forEach(function(p){
@@ -176,7 +186,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
       el.appendChild(t);
     });
     Array.prototype.forEach.call(el.querySelectorAll('button'),function(b){
-      b.onclick=function(){var r=sh('sh lib/targets.sh remove '+b.getAttribute('data-p'));log(r.stdout||r.stderr);loadTargets();};
+      b.onclick=function(){var r=sh(modcmd('lib/targets.sh remove '+b.getAttribute('data-p')));log(r.stdout||r.stderr);loadTargets();};
     });
   }
 
@@ -187,11 +197,11 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     var v=$('pkgInput').value.trim();
     if(!v){return;}
     if(!/^[A-Za-z][A-Za-z0-9._]+$/.test(v)){log('✕ 包名不合法: '+v);return;}
-    var r=sh('sh lib/targets.sh add '+v);log(r.stdout||r.stderr);$('pkgInput').value='';loadTargets();
+    var r=sh(modcmd('lib/targets.sh add '+v));log(r.stdout||r.stderr);$('pkgInput').value='';loadTargets();
   };
-  $('bReset').onclick=function(){var r=sh('sh lib/targets.sh reset');log(r.stdout||r.stderr);loadTargets();};
-  $('bAuto').onclick=function(){var r=sh('sh lib/links.sh autostart');log(r.stdout||r.stderr);};
-  $('bNotif').onclick=function(){var r=sh('sh lib/links.sh gmsnotif');log(r.stdout||r.stderr);};
+  $('bReset').onclick=function(){var r=sh(modcmd('lib/targets.sh reset'));log(r.stdout||r.stderr);loadTargets();};
+  $('bAuto').onclick=function(){var r=sh(modcmd('lib/links.sh autostart'));log(r.stdout||r.stderr);};
+  $('bNotif').onclick=function(){var r=sh(modcmd('lib/links.sh gmsnotif'));log(r.stdout||r.stderr);};
 
   if(window.Shizuku){doCheck();loadTargets();}
 })();
