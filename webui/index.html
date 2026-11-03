@@ -50,6 +50,17 @@ pre#console{background:#0a0810;border:1px solid var(--line);border-radius:10px;p
 .hint{font-size:12px;color:var(--dim);margin-top:8px}
 .card.warn{border-color:#7c5a10}
 .card.err{border-color:#7f1d1d}
+#verdict{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;
+  padding:13px 14px;margin-bottom:12px;background:var(--card2)}
+#verdict .vic{font-size:30px;line-height:1.15;flex:none}
+#verdict .vtx{font-size:16.5px;font-weight:700;letter-spacing:.01em}
+#verdict .vsub{font-size:12.5px;color:var(--dim);margin-top:4px;line-height:1.7}
+#verdict.ok{border-color:rgba(52,211,153,.5);background:rgba(52,211,153,.08)}
+#verdict.ok .vtx{color:var(--ok)}
+#verdict.warn{border-color:rgba(251,191,36,.5);background:rgba(251,191,36,.08)}
+#verdict.warn .vtx{color:var(--warn)}
+#verdict.bad{border-color:rgba(248,113,113,.55);background:rgba(248,113,113,.08)}
+#verdict.bad .vtx{color:var(--bad)}
 #modalWrap{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
 .modal{background:var(--card);border:1px solid var(--line);border-radius:16px;max-width:420px;width:100%;padding:18px;box-shadow:0 10px 40px rgba(0,0,0,.6)}
 .modal h3{font-size:16px;margin-bottom:10px}
@@ -71,7 +82,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   <div class="logo">🫐</div>
   <div>
     <h1>Berry-FCM</h1>
-    <div class="sub">OriginOS FCM 推送守护 · v1.0.8</div>
+    <div class="sub">OriginOS FCM 推送守护 · v1.0.9</div>
   </div>
   <span class="chip" id="modeChip">…</span>
 </header>
@@ -103,6 +114,13 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
 
 <div class="card">
   <h2>状态</h2>
+  <div id="verdict">
+    <span class="vic" id="vIc">⏳</span>
+    <div>
+      <div class="vtx" id="vTx">正在检测设备状态…</div>
+      <div class="vsub" id="vSub">检测完成后这里会直接给出结论:健康就说健康,有问题会说清楚哪里有问题、该点什么。</div>
+    </div>
+  </div>
   <div class="status-row"><span class="dot" id="dGms"></span><span>GMS 已安装</span><span class="kv" id="vGms">—</span></div>
   <div class="status-row"><span class="dot" id="dStop"></span><span>GMS stopped 标记</span><span class="kv" id="vStop">—</span></div>
   <div class="status-row"><span class="dot" id="dSvc"></span><span>GCM 推送主干进程</span><span class="kv" id="vSvc">—</span></div>
@@ -298,6 +316,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
       if(tgs.length)log('  守护目标: '+tgs.join(' · '));
     },function(){
       log('⚠ 尚无 state/last-report.json —— 请回模块列表点「操作」按钮跑一轮检测,再回来点「刷新报告」。');
+      setV('❓','暂无检测数据','回模块列表点「操作」按钮跑一轮检测;或开 Full access 后直接用本页按钮。','warn');
     });
     xhrText('../config/targets.txt').then(function(t){
       var list=String(t).split('\n').map(function(s){return s.trim();}).filter(function(s){return s&&!/^#/.test(s);});
@@ -316,7 +335,37 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   function setRow(dotId,vId,ok,text,warnIf){
     var d=$(dotId);d.className='dot '+(ok?'ok':(warnIf?'warn':'bad'));$(vId).textContent=text;
   }
+  function setV(ic,tx,sub,kind){
+    $('vIc').textContent=ic;$('vTx').textContent=tx;$('vSub').textContent=sub;
+    $('verdict').className=kind||'';
+  }
+  /* ---- 判决优先:先说结论,再给细节;问题要带"该点什么" ---- */
+  function renderVerdict(j){
+    if(!j){ setV('⏳','正在检测…','检测完成后这里会直接给出结论。',''); return; }
+    if(j.probe===0){
+      setV('⚠️','探测通道异常,本次结果不可信','系统命令暂时没有返回,不代表设备有问题。等几秒点「立即检测」重试;反复出现就点「复制日志」反馈。','warn'); return;
+    }
+    if(j.gms_installed!==1){
+      setV('❌','GMS(Google Play 服务)未检出','设备上没有可用的 Google Play 服务,推送无从谈起。国行 vivo 需先自行安装 GMS;确认装过就点「立即检测」重试。','bad'); return;
+    }
+    var stApps=(j.targets||[]).filter(function(x){return x.installed===1&&x.stopped===1;});
+    if(j.gms_stopped===1){
+      setV('❌','GMS 被强制停止,收不到推送','被「强制停止」的应用收不到任何广播(含 FCM)。点下方「一键修复」解除并唤醒,几秒就好。','bad'); return;
+    }
+    if(stApps.length){
+      setV('🟠','守护目标被强制停止:'+stApps.length+' 个','收不到推送:'+stApps.map(function(x){return x.pkg;}).join('、')+'。点下方「一键修复」解除。','warn'); return;
+    }
+    if(j.gcm_persistent===0){
+      setV('🟠','推送主干进程未运行','长连接进程(com.google.android.gms.persistent)不在。点「一键修复」发心跳唤醒;若反复起不来,多半是代理没覆盖 GMS 流量(mtalk.google.com:5228 被墙,需走代理)。','warn'); return;
+    }
+    if(j.receivers===0){
+      setV('🟠','GCM 接收器为 0,链路未建立','点下方「一键修复」发送三连心跳,唤醒推送链路。','warn'); return;
+    }
+    var pbNote=(j.gcm_persistent===undefined)?'(推送主干:旧报告未测,重测后显示)':'';
+    setV('✅','设备推送健康,无需任何操作','GMS 已安装 · 未被强制停止 · 推送主干存活 · 接收器 '+j.receivers+'。'+(pbNote?' '+pbNote:''),'ok');
+  }
   function renderStatus(j){
+    renderVerdict(j);
     // probe=0: dumpsys itself didn't answer → all-zero report is garbage,
     // must not render as scary red "not installed"
     if(j.probe===0){
@@ -397,7 +446,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     return '=== Berry-FCM 诊断报告 ===\n'+
       '时间: '+new Date().toString()+'\n'+
       '页面: '+location.href+'\n'+
-      'WebUI: v1.0.8 · 模块: '+((BR.info&&BR.info.version)||'?')+'('+((BR.info&&BR.info.versionCode)||'?')+')\n'+
+      'WebUI: v1.0.9 · 模块: '+((BR.info&&BR.info.version)||'?')+'('+((BR.info&&BR.info.versionCode)||'?')+')\n'+
       '桥: '+BR.kind+(BR.dead?' · dead':'')+(BR.blocked?' · blocked':'')+(RO?' · readonly':'')+
       ' · chip='+$('modeChip').textContent+'\n'+
       'UA: '+navigator.userAgent+'\n'+
