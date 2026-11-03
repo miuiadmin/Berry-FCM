@@ -71,7 +71,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   <div class="logo">🫐</div>
   <div>
     <h1>Berry-FCM</h1>
-    <div class="sub">OriginOS FCM 推送守护 · v1.0.6</div>
+    <div class="sub">OriginOS FCM 推送守护 · v1.0.8</div>
   </div>
   <span class="chip" id="modeChip">…</span>
 </header>
@@ -105,7 +105,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   <h2>状态</h2>
   <div class="status-row"><span class="dot" id="dGms"></span><span>GMS 已安装</span><span class="kv" id="vGms">—</span></div>
   <div class="status-row"><span class="dot" id="dStop"></span><span>GMS stopped 标记</span><span class="kv" id="vStop">—</span></div>
-  <div class="status-row"><span class="dot" id="dSvc"></span><span>GcmService 运行</span><span class="kv" id="vSvc">—</span></div>
+  <div class="status-row"><span class="dot" id="dSvc"></span><span>GCM 推送主干进程</span><span class="kv" id="vSvc">—</span></div>
   <div class="status-row"><span class="dot" id="dRecv"></span><span>GMS 已注册广播接收器</span><span class="kv" id="vRecv">—</span></div>
   <button class="small" id="bRefresh" style="display:none;margin-top:10px">刷新报告(只读)</button>
 </div>
@@ -293,7 +293,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
       var j=null; try{ j=JSON.parse(t); }catch(e){}
       if(!j||!j.json){ log('⚠ last-report.json 解析失败'); return; }
       renderStatus(j.json);
-      log('✓ 最近报告('+j.ts+'):probe='+('probe' in j.json?j.json.probe:'?')+' · GMS installed='+j.json.gms_installed+' · stopped='+j.json.gms_stopped+' · gcm_service='+j.json.gcm_service+' · receivers='+j.json.receivers);
+      log('✓ 最近报告('+j.ts+'):probe='+('probe' in j.json?j.json.probe:'?')+' · GMS installed='+j.json.gms_installed+' · stopped='+j.json.gms_stopped+' · persistent='+('gcm_persistent' in j.json?j.json.gcm_persistent:'?')+' · receivers='+j.json.receivers);
       var tgs=(j.json.targets||[]).map(function(x){return x.pkg+(x.installed?(x.stopped?' ⚠stopped':''):' (未安装)');});
       if(tgs.length)log('  守护目标: '+tgs.join(' · '));
     },function(){
@@ -329,7 +329,11 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     }
     setRow('dGms','vGms',j.gms_installed===1,j.gms_installed?'yes':'no');
     setRow('dStop','vStop',j.gms_stopped===0,j.gms_stopped?'true · 待修复':'false');
-    setRow('dSvc','vSvc',j.gcm_service===1,j.gcm_service?'running':'not running');
+    // push backbone = persistent process (holds the MCS long connection);
+    // GcmService is on-demand, not a health signal
+    if(j.gcm_persistent===1){ setRow('dSvc','vSvc',true,'alive'); }
+    else if(j.gcm_persistent===0){ setRow('dSvc','vSvc',false,'未运行',j.probe!==1); }
+    else{ setRow('dSvc','vSvc',false,'未知(旧报告)',true); }
     setRow('dRecv','vRecv',j.receivers>0,String(j.receivers));
   }
   function parseJson(out){
@@ -393,7 +397,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     return '=== Berry-FCM 诊断报告 ===\n'+
       '时间: '+new Date().toString()+'\n'+
       '页面: '+location.href+'\n'+
-      'WebUI: v1.0.6 · 模块: '+((BR.info&&BR.info.version)||'?')+'('+((BR.info&&BR.info.versionCode)||'?')+')\n'+
+      'WebUI: v1.0.8 · 模块: '+((BR.info&&BR.info.version)||'?')+'('+((BR.info&&BR.info.versionCode)||'?')+')\n'+
       '桥: '+BR.kind+(BR.dead?' · dead':'')+(BR.blocked?' · blocked':'')+(RO?' · readonly':'')+
       ' · chip='+$('modeChip').textContent+'\n'+
       'UA: '+navigator.userAgent+'\n'+

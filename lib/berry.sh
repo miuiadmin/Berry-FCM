@@ -98,6 +98,15 @@ b_gcm_service_alive() {
     dumpsys -t 2 activity service "$GCM_SERVICE_CMP" 2>/dev/null | grep -q 'Service record'
 }
 
+# GMS persistent process (com.google.android.gms.persistent) is the real push
+# backbone — it hosts the MCS long connection to mtalk.google.com:5228.
+# GcmService itself is on-demand: "not running" is normal on an idle device
+# and was a misleading health signal (original Guardian's rough edge).
+b_gms_persistent_alive() {
+    [ -n "$(pidof com.google.android.gms.persistent 2>/dev/null)" ] && return 0
+    ps -A 2>/dev/null | grep -q '[c]om\.google\.android\.gms\.persistent'
+}
+
 # GMS registered receiver count (fe0.smali ReceiverList regex on
 # dumpsys -t 2 activity broadcasts — receiver alive = push stack alive)
 b_gms_receiver_count() {
