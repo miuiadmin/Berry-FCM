@@ -82,7 +82,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   <div class="logo">🫐</div>
   <div>
     <h1>Berry-FCM</h1>
-    <div class="sub">OriginOS FCM 推送守护 · v1.0.9</div>
+    <div class="sub">OriginOS FCM 推送守护 · v1.0.10</div>
   </div>
   <span class="chip" id="modeChip">…</span>
 </header>
@@ -124,6 +124,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
   <div class="status-row"><span class="dot" id="dGms"></span><span>GMS 已安装</span><span class="kv" id="vGms">—</span></div>
   <div class="status-row"><span class="dot" id="dStop"></span><span>GMS stopped 标记</span><span class="kv" id="vStop">—</span></div>
   <div class="status-row"><span class="dot" id="dSvc"></span><span>GCM 推送主干进程</span><span class="kv" id="vSvc">—</span></div>
+  <div class="status-row"><span class="dot" id="dMcs"></span><span>推送长连接 (mtalk:5228)</span><span class="kv" id="vMcs">—</span></div>
   <div class="status-row"><span class="dot" id="dRecv"></span><span>GMS 已注册广播接收器</span><span class="kv" id="vRecv">—</span></div>
   <button class="small" id="bRefresh" style="display:none;margin-top:10px">刷新报告(只读)</button>
 </div>
@@ -355,14 +356,21 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     if(stApps.length){
       setV('🟠','守护目标被强制停止:'+stApps.length+' 个','收不到推送:'+stApps.map(function(x){return x.pkg;}).join('、')+'。点下方「一键修复」解除。','warn'); return;
     }
-    if(j.gcm_persistent===0){
-      setV('🟠','推送主干进程未运行','长连接进程(com.google.android.gms.persistent)不在。点「一键修复」发心跳唤醒;若反复起不来,多半是代理没覆盖 GMS 流量(mtalk.google.com:5228 被墙,需走代理)。','warn'); return;
+    // mcs = ESTABLISHED connection to mtalk.google.com:5228 (ground truth):
+    // if the link is up, push works — healthy regardless of process-name probe
+    if(j.mcs===1){
+      var pnote=(j.gcm_persistent===0)?'(进程名探测未命中,以长连接为准)':'';
+      setV('✅','设备推送健康,无需任何操作','GMS 已安装 · 未被强制停止 · 推送长连接已建立 · 接收器 '+j.receivers+'。'+(pnote?' '+pnote:''),'ok'); return;
+    }
+    if(j.gcm_persistent===0 || j.mcs===0){
+      setV('🟠','推送长连接未建立 —— 缺网络,不是设备问题','设备侧全部正常(GMS 在跑、心跳已通);Google 推送服务器 mtalk.google.com:5228 在国内被墙,GMS 的流量不走代理就永远连不上,心跳救不了这个。请到手机的代理 App 检查:分应用代理模式 → 把「Google Play 服务」等系统应用加进代理列表;TUN/全局模式 → 确认代理本身可用(浏览器试试 google.com)。改完点「一键修复」再检测。','warn'); return;
     }
     if(j.receivers===0){
       setV('🟠','GCM 接收器为 0,链路未建立','点下方「一键修复」发送三连心跳,唤醒推送链路。','warn'); return;
     }
     var pbNote=(j.gcm_persistent===undefined)?'(推送主干:旧报告未测,重测后显示)':'';
-    setV('✅','设备推送健康,无需任何操作','GMS 已安装 · 未被强制停止 · 推送主干存活 · 接收器 '+j.receivers+'。'+(pbNote?' '+pbNote:''),'ok');
+    var mcsNote=(j.mcs===undefined)?' · 长连接:旧报告未测':(j.mcs===-1?' · 长连接:未知(/proc 不可读)':'');
+    setV('✅','设备推送健康,无需任何操作','GMS 已安装 · 未被强制停止 · 推送主干存活 · 接收器 '+j.receivers+'。'+(pbNote?' '+pbNote:mcsNote),'ok');
   }
   function renderStatus(j){
     renderVerdict(j);
@@ -372,6 +380,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
       setRow('dGms','vGms',false,'探测失败',true);
       setRow('dStop','vStop',false,'未知',true);
       setRow('dSvc','vSvc',false,'未知',true);
+      setRow('dMcs','vMcs',false,'未知',true);
       setRow('dRecv','vRecv',false,'未知',true);
       if(!renderStatus._pbToast){renderStatus._pbToast=true;toast('⚠ 探测通道异常(命令无返回,结果不可信),稍后请重测','err');}
       return;
@@ -383,6 +392,10 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     if(j.gcm_persistent===1){ setRow('dSvc','vSvc',true,'alive'); }
     else if(j.gcm_persistent===0){ setRow('dSvc','vSvc',false,'未运行',j.probe!==1); }
     else{ setRow('dSvc','vSvc',false,'未知(旧报告)',true); }
+    // ground truth: ESTABLISHED TCP to mtalk.google.com:5228
+    if(j.mcs===1){ setRow('dMcs','vMcs',true,'已建立'); }
+    else if(j.mcs===0){ setRow('dMcs','vMcs',false,'未建立(网络)',false); }
+    else{ setRow('dMcs','vMcs',false,(j.mcs===-1)?'未知(/proc)':'未知(旧报告)',true); }
     setRow('dRecv','vRecv',j.receivers>0,String(j.receivers));
   }
   function parseJson(out){
@@ -446,7 +459,7 @@ footer{text-align:center;color:var(--dim);font-size:11px;margin-top:18px}
     return '=== Berry-FCM 诊断报告 ===\n'+
       '时间: '+new Date().toString()+'\n'+
       '页面: '+location.href+'\n'+
-      'WebUI: v1.0.9 · 模块: '+((BR.info&&BR.info.version)||'?')+'('+((BR.info&&BR.info.versionCode)||'?')+')\n'+
+      'WebUI: v1.0.10 · 模块: '+((BR.info&&BR.info.version)||'?')+'('+((BR.info&&BR.info.versionCode)||'?')+')\n'+
       '桥: '+BR.kind+(BR.dead?' · dead':'')+(BR.blocked?' · blocked':'')+(RO?' · readonly':'')+
       ' · chip='+$('modeChip').textContent+'\n'+
       'UA: '+navigator.userAgent+'\n'+

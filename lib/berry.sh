@@ -107,6 +107,24 @@ b_gms_persistent_alive() {
     ps -A 2>/dev/null | grep -q '[c]om\.google\.android\.gms\.persistent'
 }
 
+# MCS long-connection ground truth (v1.0.10): is there an ESTABLISHED TCP
+# connection to remote port 5228 (0x1484) — the GCM endpoint mtalk.google.com?
+# More decisive than the process-name probe: if the connection is up, push
+# works no matter which process holds it; if it is down behind the GFW, no
+# amount of heartbeats will raise it (GMS traffic must be proxied).
+# Echoes 1 = connected, 0 = none found, -1 = /proc/net unreadable (unknown).
+# /proc/net/tcp fields: "sl: local rem st ..." — rem ends ":1484", st 01 = ESTABLISHED.
+b_mcs_state() {
+    _seen=0
+    for _f in /proc/net/tcp /proc/net/tcp6; do
+        if [ -r "$_f" ]; then
+            _seen=1
+            grep -qi ':1484 01 ' "$_f" 2>/dev/null && { echo 1; return; }
+        fi
+    done
+    [ "$_seen" = "1" ] && echo 0 || echo -1
+}
+
 # GMS registered receiver count (fe0.smali ReceiverList regex on
 # dumpsys -t 2 activity broadcasts — receiver alive = push stack alive)
 b_gms_receiver_count() {

@@ -23,7 +23,7 @@ b_log "[diag] pm_path=$(pm path --user 0 "$GMS" 2>&1 | head -c 70 | tr '\n\r' ' 
 [ "$_ftn" = "0" ] && b_log "[diag] targets.txt 头部=$(head -c 60 "$TARGETS_FILE" 2>&1 | tr '\n\r\t' '   ')"
 
 # ---- collect ----
-GMS_OK=0; GMS_STOPPED=0; GCM_ALIVE=0; PERSIST=0; RECV=0; PROBE_OK=0
+GMS_OK=0; GMS_STOPPED=0; GCM_ALIVE=0; PERSIST=0; RECV=0; PROBE_OK=0; MCS=-1
 b_probe_ok && PROBE_OK=1
 TARGET_JSON=""
 TARGET_LINES=""
@@ -36,7 +36,9 @@ for pkg in $(b_load_targets); do
             RECV="$(b_gms_receiver_count)"
             b_gcm_service_alive && GCM_ALIVE=1
             b_gms_persistent_alive && PERSIST=1
-            TARGET_LINES="${TARGET_LINES}GMS=$pkg|installed|stopped=$STOP|enabled=$EN|gcm=$([ $GCM_ALIVE = 1 ] && echo yes || echo on-demand)|persist=$([ $PERSIST = 1 ] && echo yes || echo no)|recv=$RECV
+            MCS="$(b_mcs_state)"
+            _MCSTXT=no; [ "$MCS" = "1" ] && _MCSTXT=yes; [ "$MCS" = "-1" ] && _MCSTXT=unknown
+            TARGET_LINES="${TARGET_LINES}GMS=$pkg|installed|stopped=$STOP|enabled=$EN|gcm=$([ $GCM_ALIVE = 1 ] && echo yes || echo on-demand)|persist=$([ $PERSIST = 1 ] && echo yes || echo no)|mcs=$_MCSTXT|recv=$RECV
 "
         else
             TARGET_JSON="${TARGET_JSON}{\"pkg\":\"$pkg\",\"installed\":1,\"stopped\":$STOP},"
@@ -78,15 +80,16 @@ printf '%s' "$TARGET_LINES" | while IFS='|' read -r name state extra1 extra2 ext
 done
 b_log ""
 b_log "说明: stopped=true = 被「强制停止」,该状态下 FCM/广播一律收不到;"
-b_log "      GcmService 为按需服务,'on-demand' 属正常;推送主干看 persistent 进程"
-b_log "      (persist=no) 与接收器数(recv=0)= 链路未建立,可发心跳唤醒。"
+b_log "      GcmService 为按需服务,'on-demand' 属正常;mcs=到 5228 端口的 ESTABLISHED"
+b_log "      长连接(mtalk.google.com,国内被墙,需代理覆盖 GMS 流量);mcs=yes 即通,"
+b_log "      mcs=no 时心跳救不了,先修网络。"
 
 # ---- machine line + persisted report (read-only WebUI fallback) ----
 # state/last-report.json is what the WebUI reads when the manager's JS bridge
 # is dead (rushiranpise/Shizuku-Next release builds strip @JavascriptInterface
 # via R8) — the page then renders this file over file:// XHR instead.
-J="$(printf '{"probe":%s,"gms_installed":%s,"gms_stopped":%s,"gcm_service":%s,"gcm_persistent":%s,"receivers":%s,"targets":[%s]}' \
-    "$PROBE_OK" "$GMS_OK" "$GMS_STOPPED" "$GCM_ALIVE" "$PERSIST" "$RECV" "$(printf '%s' "$TARGET_JSON" | sed 's/,$//')")"
+J="$(printf '{"probe":%s,"gms_installed":%s,"gms_stopped":%s,"gcm_service":%s,"gcm_persistent":%s,"mcs":%s,"receivers":%s,"targets":[%s]}' \
+    "$PROBE_OK" "$GMS_OK" "$GMS_STOPPED" "$GCM_ALIVE" "$PERSIST" "$MCS" "$RECV" "$(printf '%s' "$TARGET_JSON" | sed 's/,$//')")"
 if mkdir -p "$STATE_DIR" 2>/dev/null && [ -w "$STATE_DIR" ]; then
     printf '{"ts":"%s","kind":"check","json":%s}\n' \
         "$(date '+%F %T')" "$J" > "$STATE_DIR/last-report.json" 2>/dev/null
